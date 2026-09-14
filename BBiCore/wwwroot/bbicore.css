@@ -1,0 +1,50 @@
+﻿/* Token de camada para o item em arrasto (junto da sua escala --bbi-z-*) */
+:root {
+    --bbi-z-arrasto: 1200;
+}
+
+.bbi-lista-ordenavel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--bbi-espaco-2, .5rem);
+}
+
+.bbi-lista-ordenavel-item {
+    display: flex;
+    align-items: center;
+    gap: var(--bbi-espaco-2, .5rem);
+    padding: var(--bbi-espaco-3, .75rem);
+    background: var(--bbi-cor-superficie, #0f172a);
+    border: 1px solid var(--bbi-cor-borda, #1e293b);
+    border-radius: var(--bbi-raio, .5rem);
+    color: var(--bbi-cor-texto, #e2e8f0);
+}
+
+.bbi-lista-ordenavel-alca {
+    display: inline-flex;
+    align-items: center;
+    cursor: grab;
+    color: var(--bbi-cor-texto-suave, #64748b);
+    touch-action: none; /* essencial para o arrasto por toque no mobile */
+}
+
+    .bbi-lista-ordenavel-alca:active {
+        cursor: grabbing;
+    }
+
+.bbi-lista-ordenavel-conteudo {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.bbi-lista-ordenavel-fantasma {
+    opacity: .4;
+}
+/* placeholder */
+.bbi-lista-ordenavel-escolhido {
+    border-color: var(--bbi-cor-primaria, #3b82f6);
+}
+
+.bbi-lista-ordenavel-arrastando {
+    z-index: var(--bbi-z-arrasto);
+}

@@ -1,0 +1,83 @@
+@*
+    Demonstração dos campos com máscara brasileira. Mostra o valor NATIVO/cru
+    capturado no binding (o que iria para o banco) ao lado do campo formatado.
+    Harness — não faz parte da biblioteca.
+*@
+@page "/campos"
+@rendermode InteractiveServer
+@using BBiCore.Mascaras
+
+<PageTitle>BBiCore — campos com máscara</PageTitle>
+
+<h1>BBiCore — campos com máscara (BR)</h1>
+
+<p class="intro">
+    Cada campo <strong>exibe</strong> no padrão brasileiro, mas entrega no binding o valor
+    <strong>nativo/cru</strong> — o que vai para o banco sem conflito (data como
+    <code>DateTime</code>, moeda como <code>decimal</code>, documentos como dígitos). A coluna
+    da direita mostra exatamente o que o binding capturou.
+</p>
+
+<div class="aviso-cnpj">
+    <strong>CNPJ alfanumérico já suportado</strong> (IN RFB 2.229/2024, vigente desde julho/2026):
+    12 caracteres alfanuméricos + 2 dígitos verificadores numéricos. Teste com o exemplo oficial
+    <code>12.ABC.345/01DE-35</code> (válido) — e note que o CNPJ numérico de sempre continua valendo
+    (<code>11.222.333/0001-81</code>). O valor cru do CNPJ <strong>tem letras</strong>: guarde como
+    texto no banco, nunca em coluna numérica.
+    <button type="button" class="tpl-btn" @onclick="PreencherExemplos">Preencher com exemplos</button>
+</div>
+
+<div class="grade-campos">
+    <div class="col-campo">
+        <BBiCampoMascarado Tipo="TipoMascara.Documento" Rotulo="CPF/CNPJ (detecta sozinho)" @bind-Valor="_documento" TextoDica="CPF ou CNPJ" />
+        <BBiCampoMascarado Tipo="TipoMascara.Cnpj" Rotulo="CNPJ (aceita letras)" @bind-Valor="_cnpj" TextoDica="00.ABC.000/0000-00" />
+        <BBiCampoMascarado Tipo="TipoMascara.Telefone" Rotulo="Telefone" @bind-Valor="_telefone" TextoDica="(00) 00000-0000" />
+        <BBiCampoMascarado Tipo="TipoMascara.Cep" Rotulo="CEP" @bind-Valor="_cep" TextoDica="00000-000" />
+        <BBiCampoMoeda Rotulo="Valor" @bind-Valor="_valor" />
+        <BBiCampoData Rotulo="Data" @bind-Valor="_data" />
+    </div>
+
+    <div class="col-valores">
+        <span class="valores-titulo">Valor capturado no binding</span>
+        <ul>
+            <li><strong>Documento (cru):</strong> <code>@(_documento ?? "—")</code></li>
+            <li><strong>CNPJ (cru, com letras):</strong> <code>@(_cnpj ?? "—")</code></li>
+            <li><strong>Telefone (cru):</strong> <code>@(_telefone ?? "—")</code></li>
+            <li><strong>CEP (cru):</strong> <code>@(_cep ?? "—")</code></li>
+            <li><strong>Valor (decimal):</strong> <code>@(_valor?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—")</code></li>
+            <li><strong>Data (ISO p/ banco):</strong> <code>@(_data?.ToString("yyyy-MM-dd") ?? "—")</code></li>
+        </ul>
+        <p class="obs">Repare: a data sai em <code>yyyy-MM-dd</code> e o decimal com ponto — prontos para o banco — enquanto a tela mostra dd/MM/yyyy e vírgula.</p>
+    </div>
+</div>
+
+@code {
+    /// <summary>Documento capturado (CPF em dígitos; CNPJ pode ter letras).</summary>
+    private string? _documento;
+
+    /// <summary>CNPJ capturado (cru — alfanumérico).</summary>
+    private string? _cnpj;
+
+    /// <summary>Telefone capturado (dígitos crus).</summary>
+    private string? _telefone;
+
+    /// <summary>CEP capturado (dígitos crus).</summary>
+    private string? _cep;
+
+    /// <summary>Valor monetário capturado (decimal nativo).</summary>
+    private decimal? _valor;
+
+    /// <summary>Data capturada (DateTime nativo).</summary>
+    private DateTime? _data;
+
+    /// <summary>Preenche os campos com exemplos válidos, inclusive o CNPJ alfanumérico oficial.</summary>
+    private void PreencherExemplos()
+    {
+        _documento = "12ABC34501DE35";     // CNPJ alfanumérico (exemplo oficial da Receita)
+        _cnpj = "11222333000181";          // CNPJ numérico tradicional — continua válido
+        _telefone = "11987654321";
+        _cep = "01310100";
+        _valor = 1234.56m;
+        _data = new DateTime(2026, 7, 11);
+    }
+}

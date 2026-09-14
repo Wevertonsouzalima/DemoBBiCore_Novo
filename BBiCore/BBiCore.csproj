@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    RCL BBiCore (.NET 9). Organizada em uma PASTA POR MÓDULO, cada uma autocontida
+    (componentes .razor, .razor.css, .razor.js colocado e classes .cs juntos), para
+    facilitar a cópia manual módulo a módulo:
+      Templates/  Importacao/  Email/  Exportacao/  Mascaras/
+    O JS fica colocado como {Componente}.razor.js (servido em
+    _content/BBiCore/{pasta}/{Componente}.razor.js). O .csproj compila qualquer
+    arrumação de pastas dentro do projeto.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>BBiCore</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Sanitização do HTML do e-mail (análise por árvore, não por regex). Licença MIT. -->
+    <PackageReference Include="HtmlAgilityPack" Version="1.11.71" />
+
+    <!-- Envio SMTP (o SmtpClient da BCL está obsoleto). Usado por Email/TransporteSmtp.cs.
+         4.16.0 é o MÍNIMO: versões anteriores têm a falha de STARTTLS Response Injection
+         (CVE-2026-41319), que permite a um atacante no meio do caminho forçar um downgrade
+         da autenticação. Não baixe desta versão. -->
+    <PackageReference Include="MailKit" Version="4.16.0" />
+    <!-- PDF: usado APENAS por Exportacao/ExportadorPdf.cs. Licença MIT (uso comercial livre,
+         sem limite de faturamento) — por isso PDFsharp/MigraDoc em vez de QuestPDF (gratuito só
+         abaixo de US$ 1M de receita) ou iText (AGPL). -->
+    <PackageReference Include="PDFsharp-MigraDoc" Version="6.1.1" />
+    <PackageReference Include="ClosedXML" Version="0.104.1" />
+    <PackageReference Include="ExcelDataReader" Version="3.9.0" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="9.0.0" />
+  </ItemGroup>
+
+  <!-- =========================================================================
+       TRANSPORTE EXCHANGE (EWS) — DESLIGADO POR PADRÃO
+
+       Por que desligado: o pacote da EWS para .NET (Microsoft.Exchange.WebServices.NETStandard)
+       NÃO TEM VERSÃO ESTÁVEL — a mais recente publicada é 2.0.0-beta3, e restore de pré-lançamento
+       costuma ser barrado em ambiente corporativo. (O pacote OFICIAL da Microsoft, 2.2, é .NET
+       Framework e não roda em .NET 9.)
+
+       Com a chave desligada, o arquivo Email/TransporteExchange.cs é EXCLUÍDO da compilação e o
+       pacote não é baixado. O envio continua funcionando por SMTP (MailKit) e pelo simulado.
+
+       Para LIGAR: mude para true abaixo. Nada mais precisa ser alterado.
+       ========================================================================= -->
+  <PropertyGroup>
+    <IncluirTransporteExchange>false</IncluirTransporteExchange>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IncluirTransporteExchange)' == 'true'">
+    <PackageReference Include="Microsoft.Exchange.WebServices.NETStandard" Version="2.0.0-beta3" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IncluirTransporteExchange)' != 'true'">
+    <Compile Remove="Email/TransporteExchange.cs" />
+  </ItemGroup>
+
+</Project>

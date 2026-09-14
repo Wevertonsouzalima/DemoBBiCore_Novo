@@ -1,0 +1,157 @@
+@*
+    Demonstração do BBiCampoTemplate USADO SOZINHO — sem e-mail nenhum.
+    Mostra que o módulo BBiCore.Templates é uma peça independente: serve para
+    mensagens (SMS/WhatsApp), títulos de relatório, modelos de documento, ou
+    qualquer texto com marcadores {{campo}}.
+
+    Harness — não faz parte da biblioteca.
+*@
+@page "/template"
+@rendermode InteractiveServer
+@using System.Globalization
+@using DemoBBiCore.Modelos
+
+<PageTitle>BBiCore — campo de template (isolado)</PageTitle>
+
+<h1>BBiCore — campo de template (uso isolado)</h1>
+
+<p class="intro">
+    O <code>BBiCampoTemplate</code> é o mecanismo de marcadores <code>{{campo}}</code> como peça
+    independente — aqui ele aparece <strong>fora do módulo de e-mail</strong>, montando um título de
+    relatório (uma linha) e uma mensagem de cobrança (várias linhas).
+    <strong>Clique com o botão direito</strong> em qualquer campo para inserir um campo do registro,
+    uma variável do sistema ou um valor automático.
+</p>
+
+<div class="tpl-grade">
+    <div class="tpl-col">
+        <h2 class="sub">1. Título do relatório (uma linha)</h2>
+        <BBiCampoTemplate Motor="_motor"
+                          TipoDados="typeof(PedidoCliente)"
+                          Fontes="FontesCampo.Todas"
+                          Rotulo="Título"
+                          TextoDica="Ex.: Pedido {{NumeroPedido}} — {{NomeCliente}}"
+                          @bind-Valor="_titulo"
+                          FaltantesChanged="f => AtualizarFaltantes(nameof(_titulo), f)" />
+
+        <h2 class="sub">2. Mensagem de cobrança (várias linhas)</h2>
+        <BBiCampoTemplate Motor="_motor"
+                          TipoDados="typeof(PedidoCliente)"
+                          Fontes="FontesCampo.Todas"
+                          Multilinha="true"
+                          Rotulo="Mensagem"
+                          TextoDica="Escreva a mensagem e insira campos com o botão direito…"
+                          @bind-Valor="_mensagem"
+                          FaltantesChanged="f => AtualizarFaltantes(nameof(_mensagem), f)" />
+
+        <h2 class="sub">3. Campo só com endereços (fontes restritas)</h2>
+        <p class="obs">
+            Aqui as fontes são <code>FontesCampo.EnderecoEmail</code> — o menu oferece só campos do
+            registro e variáveis do sistema, <strong>sem</strong> os valores automáticos (data, saudação…),
+            que não fazem sentido num endereço.
+        </p>
+        <BBiCampoTemplate Motor="_motor"
+                          TipoDados="typeof(PedidoCliente)"
+                          Fontes="FontesCampo.EnderecoEmail"
+                          Rotulo="Destino"
+                          TextoDica="Ex.: {{EmailCliente}}"
+                          @bind-Valor="_destino"
+                          FaltantesChanged="f => AtualizarFaltantes(nameof(_destino), f)" />
+    </div>
+
+    <div class="tpl-col">
+        <div class="tpl-painel">
+            <span class="tpl-painel-titulo">Resultado resolvido</span>
+            <p class="obs">Com o registro de exemplo abaixo, o motor troca os marcadores pelos valores.</p>
+
+            <div class="tpl-saida">
+                <span class="tpl-saida-rotulo">Título</span>
+                <div class="tpl-saida-valor">@Resolver(_titulo)</div>
+            </div>
+
+            <div class="tpl-saida">
+                <span class="tpl-saida-rotulo">Mensagem</span>
+                <pre class="tpl-saida-valor tpl-saida-valor--pre">@Resolver(_mensagem)</pre>
+            </div>
+
+            <div class="tpl-saida">
+                <span class="tpl-saida-rotulo">Destino</span>
+                <div class="tpl-saida-valor">@Resolver(_destino)</div>
+            </div>
+
+            @if (_faltantes.Count > 0)
+            {
+                <div class="tpl-agregado">
+                    <strong>Faltantes agregados (via FaltantesChanged):</strong>
+                    @string.Join(", ", _faltantes.Select(f => "{{" + f + "}}"))
+                </div>
+            }
+        </div>
+
+        <div class="tpl-painel">
+            <span class="tpl-painel-titulo">Registro de exemplo</span>
+            <ul class="tpl-registro">
+                <li><code>NomeCliente</code> = @_exemplo.NomeCliente</li>
+                <li><code>EmailCliente</code> = @_exemplo.EmailCliente</li>
+                <li><code>NumeroPedido</code> = @_exemplo.NumeroPedido</li>
+                <li><code>Total</code> = @_exemplo.Total.ToString("N2", new CultureInfo("pt-BR"))</li>
+                <li><code>DataPedido</code> = @_exemplo.DataPedido.ToString("dd/MM/yyyy")</li>
+                <li><code>Status</code> = @_exemplo.Status</li>
+            </ul>
+            <p class="obs">
+                As variáveis do sistema deste exemplo são <code>{{NomeSistema}}</code> e
+                <code>{{Area}}</code>; os valores automáticos vêm com o prefixo
+                <code>{{Sistema.…}}</code> (ex.: <code>{{Sistema.DataHoje}}</code>).
+            </p>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>Motor de marcadores com as variáveis do sistema deste exemplo.</summary>
+    private readonly MotorTemplate _motor = new(new Dictionary<string, string>
+    {
+        ["NomeSistema"] = "Portal de Pedidos",
+        ["Area"] = "Central de Atendimento"
+    });
+
+    /// <summary>Registro usado para resolver os marcadores.</summary>
+    private readonly PedidoCliente _exemplo = new()
+    {
+        NomeCliente = "João Silva",
+        EmailCliente = "joao.silva@exemplo.com",
+        NumeroPedido = 4821,
+        Total = 1234.50m,
+        DataPedido = new DateTime(2026, 3, 12),
+        Status = "Aprovado"
+    };
+
+    /// <summary>Título do relatório (uma linha).</summary>
+    private string _titulo = "Relatório do pedido {{NumeroPedido}} — {{NomeCliente}}";
+
+    /// <summary>Mensagem de cobrança (várias linhas).</summary>
+    private string _mensagem = "{{Sistema.Saudacao}}, {{NomeCliente}}!\n\nO seu pedido {{NumeroPedido}}, no valor de R$ {{Total}}, está com o status {{Status}}.\n\nAtenciosamente,\n{{Area}} — {{NomeSistema}}";
+
+    /// <summary>Campo de destino (fontes restritas a endereço).</summary>
+    private string _destino = "{{EmailCliente}}";
+
+    /// <summary>Faltantes reportados por cada campo (nome do campo → marcadores).</summary>
+    private readonly Dictionary<string, IReadOnlyList<string>> _porCampo = new();
+
+    /// <summary>União dos marcadores não encontrados em todos os campos.</summary>
+    private IReadOnlyList<string> _faltantes = [];
+
+    /// <summary>Recebe os faltantes de um campo e recalcula a lista agregada.</summary>
+    /// <param name="campo">Nome do campo de origem.</param>
+    /// <param name="faltantes">Marcadores não encontrados naquele campo.</param>
+    private void AtualizarFaltantes(string campo, IReadOnlyList<string> faltantes)
+    {
+        _porCampo[campo] = faltantes;
+        _faltantes = _porCampo.Values.SelectMany(v => v).Distinct().ToList();
+    }
+
+    /// <summary>Resolve um texto com o registro de exemplo.</summary>
+    /// <param name="texto">Texto com marcadores.</param>
+    /// <returns>Texto com os marcadores substituídos.</returns>
+    private string Resolver(string texto) => _motor.Resolver(texto, _exemplo).Texto;
+}

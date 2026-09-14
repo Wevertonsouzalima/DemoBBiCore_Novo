@@ -1,0 +1,237 @@
+@*
+    =========================================================================
+     BBiImportadorArquivo.razor  —  Componente de importação (RCL BBiCore)
+    -------------------------------------------------------------------------
+     Porta de entrada visual do importador. Toda a lógica de leitura/conversão
+     vive em BBiCore.cs (namespace BBiCore.Importacao); os tipos de apoio
+     ModoDisparo e ArquivoDepositado também estão lá (namespace
+     BBiCore.Componentes). Este arquivo depende deles, mas não os declara —
+     Razor não funde tipos top-level de outro namespace.
+
+     >>> NOTA PARA REORGANIZAÇÃO: este componente já é um arquivo único e
+     coeso; ao separar o restante da biblioteca, mantenha-o como está e apenas
+     garanta que ModoDisparo/ArquivoDepositado continuem em BBiCore.Componentes.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@typeparam TEntidade where TEntidade : new()
+@using BBiCore.Importacao
+
+<div class="bbi-importador">
+    <label class="bbi-importador__campo">
+        <InputFile OnChange="AoSelecionar" multiple="@Multiplos" class="bbi-importador__input" />
+        <span class="bbi-importador__rotulo">@Rotulo</span>
+    </label>
+
+    @if (Disparo == ModoDisparo.Manual && _arquivosSelecionados.Count > 0)
+    {
+        <div class="bbi-importador__pendentes">
+            <span class="bbi-importador__contagem">@_arquivosSelecionados.Count arquivo(s) selecionado(s):</span>
+            <ul class="bbi-importador__lista">
+                @foreach (IBrowserFile a in _arquivosSelecionados)
+                {
+                    <li>@a.Name</li>
+                }
+            </ul>
+
+            @if (BotaoInternoVisivel)
+            {
+                <button type="button" class="bbi-importador__btn" @onclick="ImportarAsync" disabled="@_processando">
+                    @RotuloBotaoImportar
+                </button>
+            }
+            <button type="button" class="bbi-importador__btn bbi-importador__btn--sec" @onclick="LimparSelecao" disabled="@_processando">
+                Limpar
+            </button>
+        </div>
+    }
+
+    @if (_processando)
+    {
+        <span class="bbi-importador__status">Processando…</span>
+    }
+</div>
+
+@code {
+    /// <summary>Mapa de colunas usado na importação. Obrigatório.</summary>
+    [Parameter, EditorRequired] public MapaImportacao<TEntidade> Mapa { get; set; } = default!;
+
+    /// <summary>Leitores disponíveis, escolhidos pela extensão do arquivo. Padrão: apenas CSV.</summary>
+    [Parameter] public IReadOnlyList<ILeitorTabular> Leitores { get; set; } = [new LeitorCsv()];
+
+    /// <summary>Opções da importação. Se nulo, usa os padrões.</summary>
+    [Parameter] public OpcoesImportacao? Opcoes { get; set; }
+
+    /// <summary>Quando a importação dispara. Padrão: <see cref="ModoDisparo.Automatico"/>.</summary>
+    [Parameter] public ModoDisparo Disparo { get; set; } = ModoDisparo.Automatico;
+
+    /// <summary>No modo manual, exibe o botão interno de importar. Padrão: verdadeiro.</summary>
+    [Parameter] public bool BotaoInternoVisivel { get; set; } = true;
+
+    /// <summary>Texto do botão interno de importar.</summary>
+    [Parameter] public string RotuloBotaoImportar { get; set; } = "Importar";
+
+    /// <summary>Tamanho (MB) que separa processamento imediato de depósito. Nulo processa tudo na hora.</summary>
+    [Parameter] public int? TamanhoDivisorMb { get; set; }
+
+    /// <summary>Pasta de destino para arquivos acima do divisor. Obrigatória quando <see cref="TamanhoDivisorMb"/> é definido.</summary>
+    [Parameter] public string? CaminhoDestino { get; set; }
+
+    /// <summary>Disparado quando um lote é processado (caminho síncrono).</summary>
+    [Parameter] public EventCallback<ResultadoImportacao<TEntidade>> OnImportado { get; set; }
+
+    /// <summary>Disparado quando um arquivo grande é depositado (caminho assíncrono).</summary>
+    [Parameter] public EventCallback<ArquivoDepositado> OnDepositado { get; set; }
+
+    /// <summary>Tamanho máximo aceito no upload, em bytes.</summary>
+    [Parameter] public long TamanhoMaximoUploadBytes { get; set; } = 2L * 1024 * 1024 * 1024;
+
+    /// <summary>Permite selecionar múltiplos arquivos.</summary>
+    [Parameter] public bool Multiplos { get; set; } = true;
+
+    /// <summary>Texto do seletor de arquivo.</summary>
+    [Parameter] public string Rotulo { get; set; } = "Selecionar arquivo(s)";
+
+    /// <summary>Arquivos atualmente selecionados aguardando processamento (modo manual).</summary>
+    private IReadOnlyList<IBrowserFile> _arquivosSelecionados = [];
+
+    /// <summary>Indica se um processamento está em andamento (desabilita os botões).</summary>
+    private bool _processando;
+
+    /// <summary>Valida a configuração em tempo de parametrização, antes de qualquer arquivo chegar.</summary>
+    protected override void OnParametersSet()
+    {
+        if (TamanhoDivisorMb is not null && string.IsNullOrWhiteSpace(CaminhoDestino))
+            throw new InvalidOperationException(
+                "CaminhoDestino é obrigatório quando TamanhoDivisorMb está definido.");
+    }
+
+    /// <summary>Trata a seleção de arquivos: guarda a lista e, no modo automático, já importa.</summary>
+    /// <param name="e">Evento de mudança do seletor.</param>
+    private async Task AoSelecionar(InputFileChangeEventArgs e)
+    {
+        _arquivosSelecionados = e.GetMultipleFiles(Multiplos ? 100 : 1);
+
+        if (Disparo == ModoDisparo.Automatico)
+            await ImportarAsync();
+    }
+
+    /// <summary>Processa os arquivos selecionados. Pode ser chamado a partir de um botão próprio via <c>@ref</c>.</summary>
+    public async Task ImportarAsync()
+    {
+        if (_arquivosSelecionados.Count == 0)
+            return;
+
+        _processando = true;
+        StateHasChanged();
+
+        ResultadoImportacao<TEntidade> consolidado = new();
+        bool processouAlgum = false;
+        long divisorBytes = (TamanhoDivisorMb ?? int.MaxValue) * 1024L * 1024L;
+
+        foreach (IBrowserFile arquivo in _arquivosSelecionados)
+        {
+            // Decide pelo TAMANHO, sem ler um byte do conteúdo.
+            if (TamanhoDivisorMb is not null && arquivo.Size > divisorBytes)
+            {
+                ArquivoDepositado dep = await Depositar(arquivo);
+                await OnDepositado.InvokeAsync(dep);
+                continue;
+            }
+
+            processouAlgum = true;
+            ResultadoImportacao<TEntidade> parcial = await Processar(arquivo);
+            consolidado.Relatorio.AddRange(parcial.Relatorio);
+
+            if (Opcoes?.Modo == ModoImportacao.PararNaPrimeiraFalha && !parcial.Sucesso)
+                break;
+        }
+
+        _processando = false;
+        _arquivosSelecionados = []; // consumidos
+
+        if (processouAlgum)
+            await OnImportado.InvokeAsync(consolidado);
+
+        StateHasChanged();
+    }
+
+    /// <summary>Limpa a seleção pendente (modo manual).</summary>
+    public void LimparSelecao()
+    {
+        _arquivosSelecionados = [];
+        StateHasChanged();
+    }
+
+    /// <summary>Grava o arquivo em disco temporário e roda o motor sobre ele.</summary>
+    /// <param name="arquivo">Arquivo enviado.</param>
+    /// <returns>Resultado parcial da importação daquele arquivo.</returns>
+    private async Task<ResultadoImportacao<TEntidade>> Processar(IBrowserFile arquivo)
+    {
+        // Stream para arquivo temporário em disco (Excel exige seekável; evita MemoryStream).
+        string temp = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}_{SanitizarNome(arquivo.Name)}");
+
+        try
+        {
+            await using (FileStream fs = File.Create(temp))
+                await arquivo.OpenReadStream(TamanhoMaximoUploadBytes).CopyToAsync(fs);
+
+            ILeitorTabular? leitor = Leitores.FirstOrDefault(l => l.Suporta(arquivo.Name));
+
+            if (leitor is null)
+            {
+                ResultadoImportacao<TEntidade> semSuporte = new();
+                semSuporte.Relatorio.Add(new LinhaResultado<TEntidade>
+                {
+                    Arquivo = arquivo.Name,
+                    Linha = 0,
+                    Status = StatusLinha.Falha,
+                    Falhas = [new FalhaImportacao(null, "(arquivo)", null, "Formato não suportado.")]
+                });
+                return semSuporte;
+            }
+
+            return await Task.Run(() =>
+            {
+                using FileStream leitura = File.OpenRead(temp);
+                return ImportadorTabular.Importar(leitura, arquivo.Name, Mapa, leitor, Opcoes);
+            });
+        }
+        finally
+        {
+            if (File.Exists(temp))
+                File.Delete(temp);
+        }
+    }
+
+    /// <summary>Grava um arquivo grande na pasta de destino, de forma atômica (staging + move).</summary>
+    /// <param name="arquivo">Arquivo enviado.</param>
+    /// <returns>Metadados do arquivo depositado.</returns>
+    private async Task<ArquivoDepositado> Depositar(IBrowserFile arquivo)
+    {
+        Directory.CreateDirectory(CaminhoDestino!);
+
+        string staging = Path.Combine(CaminhoDestino!, $"{Guid.NewGuid():N}.tmp");
+        string nomeFinal = $"{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}_{SanitizarNome(arquivo.Name)}";
+        string destino = Path.Combine(CaminhoDestino!, nomeFinal);
+
+        await using (FileStream fs = File.Create(staging))
+            await arquivo.OpenReadStream(TamanhoMaximoUploadBytes).CopyToAsync(fs);
+
+        File.Move(staging, destino);
+        return new ArquivoDepositado(arquivo.Name, destino, arquivo.Size);
+    }
+
+    /// <summary>Remove caminho embutido e caracteres inválidos de um nome de arquivo.</summary>
+    /// <param name="nome">Nome original.</param>
+    /// <returns>Nome seguro para uso em disco.</returns>
+    private static string SanitizarNome(string nome)
+    {
+        string limpo = Path.GetFileName(nome);
+
+        foreach (char c in Path.GetInvalidFileNameChars())
+            limpo = limpo.Replace(c, '_');
+
+        return limpo;
+    }
+}

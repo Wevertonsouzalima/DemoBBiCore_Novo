@@ -1,0 +1,322 @@
+@*
+    =========================================================================
+     BBiExportador.razor  —  Exportação de uma lista para CSV/Excel
+    -------------------------------------------------------------------------
+     Descobre as colunas de T por reflexão (menos as excluídas pelo dev),
+     exibe-as como checkboxes (todas marcadas), deixa escolher o formato e,
+     no CSV, o separador. Gera o arquivo e dispara o download no navegador.
+
+     Depende de Exportacao.cs (mesma pasta) e do JS colocado BBiExportador.razor.js.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@typeparam T
+@using System.Globalization
+@using BBiCore.Exportacao
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="bbi-exp">
+    <div class="bbi-exp__secao">
+        <span class="bbi-exp__titulo">Colunas a exportar</span>
+        <div class="bbi-exp__colunas">
+            @foreach (ColunaExportacao<T> coluna in _colunas)
+            {
+                <label class="bbi-exp__col">
+                    <input type="checkbox"
+                           checked="@_selecao[coluna.Nome]"
+                           @onchange="e => AlternarColuna(coluna.Nome, e)" />
+                    @coluna.Cabecalho
+                </label>
+            }
+            @if (_colunas.Count == 0)
+            {
+                <span class="bbi-exp__vazio">Nenhuma propriedade exportável encontrada.</span>
+            }
+        </div>
+        <div class="bbi-exp__acoes-col">
+            <button type="button" class="bbi-exp__link" @onclick="() => MarcarTodas(true)">Marcar todas</button>
+            <button type="button" class="bbi-exp__link" @onclick="() => MarcarTodas(false)">Desmarcar todas</button>
+        </div>
+    </div>
+
+    <div class="bbi-exp__secao">
+        <span class="bbi-exp__titulo">Formato</span>
+        <div class="bbi-exp__formato">
+            <label class="bbi-exp__radio">
+                <input type="radio" name="fmt" checked="@(_formato == FormatoExportacao.Csv)"
+                       @onchange="() => _formato = FormatoExportacao.Csv" />
+                CSV
+            </label>
+            <label class="bbi-exp__radio">
+                <input type="radio" name="fmt" checked="@(_formato == FormatoExportacao.Excel)"
+                       @onchange="() => _formato = FormatoExportacao.Excel" />
+                Excel (.xlsx)
+            </label>
+            <label class="bbi-exp__radio">
+                <input type="radio" name="fmt" checked="@(_formato == FormatoExportacao.Pdf)"
+                       @onchange="() => _formato = FormatoExportacao.Pdf" />
+                PDF (.pdf)
+            </label>
+
+            @if (_formato == FormatoExportacao.Csv)
+            {
+                <label class="bbi-exp__sep">
+                    Separador:
+                    <select @onchange="AoMudarSeparador" value="@_separador.ToString()">
+                        <option value=";">ponto e vírgula ( ; )</option>
+                        <option value=",">vírgula ( , )</option>
+                        <option value="&#9;">tabulação</option>
+                        <option value="|">barra vertical ( | )</option>
+                    </select>
+                </label>
+            }
+
+            @if (_formato == FormatoExportacao.Pdf)
+            {
+                <label class="bbi-exp__sep">
+                    Orientação:
+                    <select @onchange="AoMudarOrientacao" value="@_orientacao">
+                        <option value="@OrientacaoPdf.Automatica">automática</option>
+                        <option value="@OrientacaoPdf.Retrato">retrato</option>
+                        <option value="@OrientacaoPdf.Paisagem">paisagem</option>
+                    </select>
+                </label>
+            }
+        </div>
+
+        @if (_formato == FormatoExportacao.Pdf)
+        {
+            <div class="bbi-exp__pdf">
+                <label class="bbi-exp__sep">
+                    Título:
+                    <input type="text" class="bbi-exp__titulo-campo" placeholder="Título do relatório"
+                           value="@_tituloPdf" @oninput="e => _tituloPdf = e.Value?.ToString() ?? string.Empty" />
+                </label>
+
+                <span class="bbi-exp__nota">
+                    @DescricaoLayoutPdf
+                </span>
+            </div>
+        }
+    </div>
+
+    <div class="bbi-exp__rodape">
+        <button type="button" class="bbi-exp__botao" @onclick="Exportar" disabled="@(_ocupado || NenhumaSelecionada)">
+            Exportar @NomeFormato
+        </button>
+        @if (NenhumaSelecionada)
+        {
+            <span class="bbi-exp__nota">Selecione ao menos uma coluna.</span>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Itens a exportar.</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<T> Itens { get; set; } = [];
+
+    /// <summary>Nomes de propriedades a NÃO oferecer para exportação (comparação sem caixa).</summary>
+    [Parameter] public IEnumerable<string>? PropriedadesRemover { get; set; }
+
+    /// <summary>Nome base do arquivo gerado (sem extensão).</summary>
+    [Parameter] public string NomeArquivo { get; set; } = "exportacao";
+
+    /// <summary>Nome da planilha, quando Excel.</summary>
+    [Parameter] public string NomeAba { get; set; } = "Dados";
+
+    /// <summary>Título impresso no topo do PDF. O usuário pode ajustá-lo na tela.</summary>
+    [Parameter] public string TituloPdf { get; set; } = string.Empty;
+
+    /// <summary>Subtítulo opcional do PDF (ex.: período, filtro aplicado).</summary>
+    [Parameter] public string? SubtituloPdf { get; set; }
+
+    /// <summary>Colunas descobertas por reflexão.</summary>
+    private IReadOnlyList<ColunaExportacao<T>> _colunas = [];
+
+    /// <summary>Estado de seleção por nome de coluna.</summary>
+    private readonly Dictionary<string, bool> _selecao = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Formato escolhido.</summary>
+    private FormatoExportacao _formato = FormatoExportacao.Excel;
+
+    /// <summary>Separador de campo do CSV.</summary>
+    private char _separador = ';';
+
+    /// <summary>Orientação escolhida para o PDF.</summary>
+    private OrientacaoPdf _orientacao = OrientacaoPdf.Automatica;
+
+    /// <summary>Título do PDF em edição.</summary>
+    private string _tituloPdf = string.Empty;
+
+    /// <summary>Indica exportação em andamento.</summary>
+    private bool _ocupado;
+
+    /// <summary>Módulo JS de download.</summary>
+    private IJSObjectReference? _modulo;
+
+    /// <summary>Verdadeiro quando nenhuma coluna está marcada.</summary>
+    private bool NenhumaSelecionada => !_selecao.Values.Any(v => v);
+
+    /// <summary>Nome do formato escolhido, exibido no botão.</summary>
+    private string NomeFormato
+    {
+        get
+        {
+            switch (_formato)
+            {
+                case FormatoExportacao.Csv:
+                    return "CSV";
+                case FormatoExportacao.Pdf:
+                    return "PDF";
+                case FormatoExportacao.Excel:
+                default:
+                    return "Excel";
+            }
+        }
+    }
+
+    /// <summary>Descobre as colunas e inicializa a seleção (todas marcadas).</summary>
+    protected override void OnParametersSet()
+    {
+        _colunas = ExportadorTabular.DescobrirColunas<T>(PropriedadesRemover);
+
+        if (string.IsNullOrEmpty(_tituloPdf) && !string.IsNullOrEmpty(TituloPdf))
+            _tituloPdf = TituloPdf;
+
+        foreach (ColunaExportacao<T> coluna in _colunas)
+            if (!_selecao.ContainsKey(coluna.Nome))
+                _selecao[coluna.Nome] = true;
+    }
+
+    /// <summary>Carrega o módulo JS após a primeira renderização.</summary>
+    /// <param name="primeiraVez">Se é a primeira renderização.</param>
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+            _modulo = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BBiCore/Exportacao/BBiExportador.razor.js");
+    }
+
+    /// <summary>Marca/desmarca uma coluna.</summary>
+    /// <param name="nome">Nome da coluna.</param>
+    /// <param name="e">Evento do checkbox.</param>
+    private void AlternarColuna(string nome, ChangeEventArgs e)
+        => _selecao[nome] = e.Value is bool b && b;
+
+    /// <summary>Marca ou desmarca todas as colunas.</summary>
+    /// <param name="marcar">Se verdadeiro, marca todas.</param>
+    private void MarcarTodas(bool marcar)
+    {
+        foreach (ColunaExportacao<T> coluna in _colunas)
+            _selecao[coluna.Nome] = marcar;
+    }
+
+    /// <summary>Atualiza o separador do CSV.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private void AoMudarSeparador(ChangeEventArgs e)
+    {
+        string valor = e.Value?.ToString() ?? ";";
+        _separador = string.IsNullOrEmpty(valor) ? ';' : valor[0];
+    }
+
+    /// <summary>Atualiza a orientação do PDF.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private void AoMudarOrientacao(ChangeEventArgs e)
+    {
+        if (Enum.TryParse(e.Value?.ToString(), out OrientacaoPdf valor))
+            _orientacao = valor;
+    }
+
+    /// <summary>Explica ao usuário como a página vai sair (orientação e ajuste de fonte), antes de gerar.</summary>
+    private string DescricaoLayoutPdf
+    {
+        get
+        {
+            int selecionadas = _selecao.Count(par => par.Value);
+
+            if (selecionadas == 0)
+                return string.Empty;
+
+            OpcoesPdf previa = new() { Orientacao = _orientacao };
+
+            OrientacaoPdf efetiva = ExportadorPdf.DecidirOrientacao(selecionadas, previa);
+            double fonte = ExportadorPdf.CalcularTamanhoFonte(selecionadas, previa);
+
+            string layout = efetiva == OrientacaoPdf.Paisagem ? "paisagem" : "retrato";
+            string aviso = fonte <= previa.TamanhoFonteMinimo
+                ? " — com muitas colunas, o texto quebra dentro da célula"
+                : string.Empty;
+
+            return $"{selecionadas} coluna(s) → {layout}, fonte {fonte:0.#} pt{aviso}";
+        }
+    }
+
+    /// <summary>Gera o arquivo com as colunas selecionadas e dispara o download.</summary>
+    private async Task Exportar()
+    {
+        if (NenhumaSelecionada)
+            return;
+
+        _ocupado = true;
+
+        try
+        {
+            List<ColunaExportacao<T>> selecionadas = [.. _colunas.Where(c => _selecao[c.Nome])];
+
+            byte[] bytes;
+            string extensao;
+            string mime;
+
+            switch (_formato)
+            {
+                case FormatoExportacao.Csv:
+                    OpcoesCsv opcoes = new() { Separador = _separador };
+                    bytes = ExportadorTabular.ParaCsv(Itens, selecionadas, opcoes);
+                    extensao = "csv";
+                    mime = "text/csv";
+                    break;
+                case FormatoExportacao.Pdf:
+                    OpcoesPdf opcoesPdf = new()
+                    {
+                        Titulo = _tituloPdf,
+                        Subtitulo = SubtituloPdf,
+                        Orientacao = _orientacao
+                    };
+                    bytes = ExportadorPdf.Gerar(Itens, selecionadas, opcoesPdf);
+                    extensao = "pdf";
+                    mime = "application/pdf";
+                    break;
+                case FormatoExportacao.Excel:
+                default:
+                    bytes = ExportadorTabular.ParaExcel(Itens, selecionadas, NomeAba);
+                    extensao = "xlsx";
+                    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                    break;
+            }
+
+            if (_modulo is not null)
+                await _modulo.InvokeVoidAsync("baixar", $"{NomeArquivo}.{extensao}", Convert.ToBase64String(bytes), mime);
+        }
+        finally
+        {
+            _ocupado = false;
+        }
+    }
+
+    /// <summary>Libera o módulo JS ao destruir o componente.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuito já encerrado; nada a fazer.
+            }
+        }
+    }
+}

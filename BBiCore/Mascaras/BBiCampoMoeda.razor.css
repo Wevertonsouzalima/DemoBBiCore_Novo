@@ -1,0 +1,8 @@
+/* Estilos isolados dos campos com máscara. */
+.bbi-campo { display: flex; flex-direction: column; gap: 5px; }
+.bbi-campo__rotulo { font-size: 0.8rem; color: #94a3b8; }
+.bbi-campo__input { padding: 9px 11px; border: 1px solid #334155; border-radius: 6px; background: #020617; color: #e2e8f0; font-size: 0.9rem; width: 100%; box-sizing: border-box; }
+.bbi-campo__input--invalido { border-color: #b91c1c; }
+.bbi-campo__erro { font-size: 0.78rem; color: #fda4af; }
+.bbi-campo__moeda { display: flex; align-items: center; gap: 6px; }
+.bbi-campo__prefixo { color: #94a3b8; font-size: 0.9rem; }

@@ -1,0 +1,21 @@
+/* Estilos isolados do exportador. */
+.bbi-exp { display: flex; flex-direction: column; gap: 16px; }
+.bbi-exp__secao { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1225; }
+.bbi-exp__titulo { font-size: 0.9rem; font-weight: 600; color: #93c5fd; }
+.bbi-exp__colunas { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
+.bbi-exp__col { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: #e2e8f0; }
+.bbi-exp__vazio { color: #64748b; font-size: 0.85rem; }
+.bbi-exp__acoes-col { display: flex; gap: 12px; }
+.bbi-exp__link { background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 0.8rem; padding: 0; }
+.bbi-exp__link:hover { text-decoration: underline; }
+.bbi-exp__formato { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.bbi-exp__radio, .bbi-exp__sep { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: #e2e8f0; }
+.bbi-exp__sep select { padding: 6px 8px; border: 1px solid #334155; border-radius: 6px; background: #020617; color: #e2e8f0; font-size: 0.85rem; }
+.bbi-exp__rodape { display: flex; align-items: center; gap: 12px; }
+.bbi-exp__botao { padding: 9px 18px; border: none; border-radius: 8px; background: #047857; color: #fff; cursor: pointer; font-size: 0.9rem; }
+.bbi-exp__botao:hover { background: #059669; }
+.bbi-exp__botao:disabled { opacity: 0.5; cursor: default; }
+.bbi-exp__nota { font-size: 0.8rem; color: #64748b; font-style: italic; }
+/* Opções específicas do PDF. */
+.bbi-exp__pdf { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.bbi-exp__titulo-campo { padding: 6px 8px; border: 1px solid #334155; border-radius: 6px; background: #020617; color: #e2e8f0; font-size: 0.85rem; min-width: 220px; }

@@ -1,0 +1,120 @@
+@*
+    =========================================================================
+     BBiCampoData.razor  —  Campo de data brasileira
+    -------------------------------------------------------------------------
+     Exibe dd/MM/yyyy. O @bind-Valor trabalha com DateTime? NATIVO — o EF grava
+     no formato do banco (ISO), sem conflito; a tela mostra o padrão brasileiro.
+     Marca estado inválido quando a data digitada não é válida.
+
+     Depende de Mascaras.cs (mesma pasta) e do JS colocado BBiCampoMascarado.razor.js.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using BBiCore.Mascaras
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="bbi-campo">
+    @if (!string.IsNullOrEmpty(Rotulo))
+    {
+        <label class="bbi-campo__rotulo" for="@_id">@Rotulo</label>
+    }
+    <input id="@_id"
+           @ref="_elemento"
+           class="bbi-campo__input @(_invalido ? "bbi-campo__input--invalido" : "")"
+           type="text"
+           inputmode="numeric"
+           placeholder="dd/mm/aaaa"
+           value="@_exibido"
+           @onchange="AoMudar" />
+    @if (_invalido)
+    {
+        <span class="bbi-campo__erro">Data inválida.</span>
+    }
+</div>
+
+@code {
+    /// <summary>Data (bindável), em DateTime nativo.</summary>
+    [Parameter] public DateTime? Valor { get; set; }
+
+    /// <summary>Notifica mudança do valor.</summary>
+    [Parameter] public EventCallback<DateTime?> ValorChanged { get; set; }
+
+    /// <summary>Rótulo opcional.</summary>
+    [Parameter] public string? Rotulo { get; set; }
+
+    /// <summary>Id único do input.</summary>
+    private readonly string _id = $"bbi-data-{Guid.NewGuid():N}";
+
+    /// <summary>Referência ao input.</summary>
+    private ElementReference _elemento;
+
+    /// <summary>Texto exibido.</summary>
+    private string _exibido = string.Empty;
+
+    /// <summary>Indica data inválida digitada.</summary>
+    private bool _invalido;
+
+    /// <summary>Módulo JS de máscara.</summary>
+    private IJSObjectReference? _modulo;
+
+    /// <summary>Sincroniza a exibição quando o valor muda de fora.</summary>
+    protected override void OnParametersSet()
+        => _exibido = Valor.HasValue ? Data.Formatar(Valor.Value) : string.Empty;
+
+    /// <summary>Liga a máscara de data após a primeira renderização.</summary>
+    /// <param name="primeiraVez">Se é a primeira renderização.</param>
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+        {
+            _modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BBiCore/Mascaras/BBiCampoMascarado.razor.js");
+            await _modulo.InvokeVoidAsync("ligar", _elemento, "data");
+        }
+    }
+
+    /// <summary>Converte o texto dd/MM/yyyy em DateTime e entrega no binding.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private async Task AoMudar(ChangeEventArgs e)
+    {
+        string texto = e.Value?.ToString() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(TextoMascara.SomenteDigitos(texto)))
+        {
+            _invalido = false;
+            _exibido = string.Empty;
+            Valor = null;
+            await ValorChanged.InvokeAsync(null);
+            return;
+        }
+
+        if (Data.TentarConverter(texto, out DateTime data))
+        {
+            _invalido = false;
+            _exibido = Data.Formatar(data);
+            Valor = data;
+            await ValorChanged.InvokeAsync(data);
+        }
+        else
+        {
+            _invalido = true;
+            _exibido = texto;
+        }
+    }
+
+    /// <summary>Libera o módulo JS ao destruir o componente.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuito já encerrado; nada a fazer.
+            }
+        }
+    }
+}

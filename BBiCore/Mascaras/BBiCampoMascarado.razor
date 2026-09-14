@@ -1,0 +1,132 @@
+@*
+    =========================================================================
+     BBiCampoMascarado.razor  —  Campo de texto com máscara BR
+    -------------------------------------------------------------------------
+     Cobre documento (CPF/CNPJ), CPF, CNPJ, telefone e CEP. Exibe formatado; o
+     @bind-Valor entrega por padrão o valor CRU (pronto para o banco). Se
+     Formatado="true", entrega o texto com máscara.
+
+     CNPJ: já trata o formato ALFANUMÉRICO (IN RFB 2.229/2024) — 12 caracteres
+     alfanuméricos + 2 dígitos verificadores. Por isso, no CNPJ o valor cru NÃO
+     é "só dígitos": pode conter letras (A–Z). Guarde-o como TEXTO no banco.
+
+     Depende de Mascaras.cs (mesma pasta) e do JS colocado BBiCampoMascarado.razor.js.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using BBiCore.Mascaras
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="bbi-campo">
+    @if (!string.IsNullOrEmpty(Rotulo))
+    {
+        <label class="bbi-campo__rotulo" for="@_id">@Rotulo</label>
+    }
+    <input id="@_id"
+           @ref="_elemento"
+           class="bbi-campo__input @(_invalido ? "bbi-campo__input--invalido" : "")"
+           type="text"
+           inputmode="@ModoEntrada"
+           autocapitalize="characters"
+           spellcheck="false"
+           placeholder="@TextoDica"
+           value="@_exibido"
+           @onchange="AoMudar" />
+    @if (_invalido)
+    {
+        <span class="bbi-campo__erro">@(MensagemInvalido ?? Mascara.MensagemInvalido(Tipo))</span>
+    }
+</div>
+
+@code {
+    /// <summary>Tipo de máscara aplicada.</summary>
+    [Parameter, EditorRequired] public TipoMascara Tipo { get; set; }
+
+    /// <summary>Valor do campo (bindável). Cru por padrão; formatado se <see cref="Formatado"/> for verdadeiro.</summary>
+    [Parameter] public string? Valor { get; set; }
+
+    /// <summary>Notifica mudança do valor (par de <see cref="Valor"/>).</summary>
+    [Parameter] public EventCallback<string> ValorChanged { get; set; }
+
+    /// <summary>Se verdadeiro, o binding entrega o valor FORMATADO; caso contrário, o cru (pronto para o banco).</summary>
+    [Parameter] public bool Formatado { get; set; }
+
+    /// <summary>Rótulo opcional acima do campo.</summary>
+    [Parameter] public string? Rotulo { get; set; }
+
+    /// <summary>Texto de dica exibido no campo vazio (placeholder).</summary>
+    [Parameter] public string? TextoDica { get; set; }
+
+    /// <summary>Mensagem exibida quando o valor é inválido. Nulo usa a mensagem padrão do tipo.</summary>
+    [Parameter] public string? MensagemInvalido { get; set; }
+
+    /// <summary>Id único do campo.</summary>
+    private readonly string _id = $"bbi-mask-{Guid.NewGuid():N}";
+
+    /// <summary>Referência ao campo (para ligar a máscara no JS).</summary>
+    private ElementReference _elemento;
+
+    /// <summary>Texto formatado exibido.</summary>
+    private string _exibido = string.Empty;
+
+    /// <summary>Indica se o valor atual é inválido.</summary>
+    private bool _invalido;
+
+    /// <summary>Módulo JS de máscara.</summary>
+    private IJSObjectReference? _modulo;
+
+    /// <summary>Teclado sugerido no celular: numérico só quando o tipo não aceita letras (o CNPJ aceita).</summary>
+    private string ModoEntrada => Mascara.AceitaLetras(Tipo) ? "text" : "numeric";
+
+    /// <summary>Sincroniza o valor exibido quando o parâmetro muda de fora.</summary>
+    protected override void OnParametersSet()
+        => _exibido = Mascara.Formatar(Tipo, Valor);
+
+    /// <summary>Liga a máscara client-side após a primeira renderização.</summary>
+    /// <param name="primeiraVez">Se é a primeira renderização.</param>
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+        {
+            _modulo = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BBiCore/Mascaras/BBiCampoMascarado.razor.js");
+
+            await _modulo.InvokeVoidAsync("ligar", _elemento, Mascara.ChaveJs(Tipo));
+        }
+    }
+
+    /// <summary>Processa a saída do campo: formata, valida e entrega o valor (cru ou formatado).</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private async Task AoMudar(ChangeEventArgs e)
+    {
+        string digitado = e.Value?.ToString() ?? string.Empty;
+
+        _exibido = Mascara.Formatar(Tipo, digitado);
+
+        string cru = Mascara.Limpar(Tipo, digitado);
+        bool? valido = Mascara.Validar(Tipo, digitado);
+        _invalido = valido == false && cru.Length > 0;
+
+        string entregue = Formatado ? _exibido : cru;
+        Valor = entregue;
+
+        await ValorChanged.InvokeAsync(entregue);
+    }
+
+    /// <summary>Libera o módulo JS ao destruir o componente.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuito já encerrado; nada a fazer.
+            }
+        }
+    }
+}

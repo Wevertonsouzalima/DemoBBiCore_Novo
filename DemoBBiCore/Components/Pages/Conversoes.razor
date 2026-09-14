@@ -1,0 +1,201 @@
+@*
+    Documentação de referência de tudo que a BBiCore converte/formata: máscaras
+    (recapitulação — o vivo de verdade está em /campos) e o módulo Conversoes.cs
+    inteiro (bool, numérico, data/hora, char, enum e dropdown), com exemplos
+    interativos onde agrega. Harness — não faz parte da biblioteca.
+*@
+@page "/conversoes"
+@rendermode InteractiveServer
+@using BBiCore.Conversoes
+@using System.ComponentModel.DataAnnotations
+@using static BBiCore.Conversoes.ConversaoExtensions
+
+<PageTitle>BBiCore — conversões e máscaras</PageTitle>
+
+<h1>BBiCore — conversões e máscaras</h1>
+
+<p class="intro">
+    Referência de tudo que a DLL converte/formata: as <strong>máscaras de campo</strong>
+    (documento, telefone, CEP, moeda, data — já vistas ao vivo em <a href="/campos">/campos</a>)
+    e o módulo <code>Conversoes.cs</code> inteiro (<code>ConversaoExtensions</code>), sempre em
+    extension method e sempre com três variantes: lança (<code>.ParaX()</code>), fallback
+    (<code>.ParaX(emCasoErro)</code>) ou nulo (<code>.ParaXOuNulo()</code>).
+</p>
+
+<h2>Máscaras (BBiCampoMascarado / BBiCampoMoeda / BBiCampoData)</h2>
+
+<table class="tabela-doc">
+    <thead>
+        <tr><th>Tipo</th><th>Exemplo digitado</th><th>Exibição</th><th>Valor cru (binding)</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>CPF</td><td>11222333981</td><td>112.223.339-81</td><td><code>string</code> (dígitos)</td></tr>
+        <tr><td>CNPJ numérico</td><td>11222333000181</td><td>11.222.333/0001-81</td><td><code>string</code> (dígitos)</td></tr>
+        <tr><td>CNPJ alfanumérico</td><td>12ABC34501DE35</td><td>12.ABC.345/01DE-35</td><td><code>string</code> (com letras)</td></tr>
+        <tr><td>Telefone</td><td>11987654321</td><td>(11) 98765-4321</td><td><code>string</code> (dígitos)</td></tr>
+        <tr><td>CEP</td><td>01310100</td><td>01310-100</td><td><code>string</code> (dígitos)</td></tr>
+        <tr><td>Moeda</td><td>123456</td><td>R$ 1.234,56</td><td><code>decimal</code></td></tr>
+        <tr><td>Data</td><td>15072026</td><td>15/07/2026</td><td><code>DateTime</code></td></tr>
+    </tbody>
+</table>
+<p class="obs">Detalhe e teste ao vivo em <a href="/campos">/campos</a> — inclusive o CNPJ alfanumérico (IN RFB 2.229/2024).</p>
+
+<h2>Booleano</h2>
+
+<table class="tabela-doc">
+    <thead><tr><th>Formato</th><th>Verdadeiro</th><th>Falso</th></tr></thead>
+    <tbody>
+        <tr><td><code>FormatoBooleano.SimNao</code></td><td>Sim</td><td>Não</td></tr>
+        <tr><td><code>FormatoBooleano.AtivoInativo</code></td><td>Ativo</td><td>Inativo</td></tr>
+        <tr><td><code>FormatoBooleano.VerdadeiroFalso</code></td><td>Verdadeiro</td><td>Falso</td></tr>
+        <tr><td><code>FormatoBooleano.SN</code></td><td>S</td><td>N</td></tr>
+        <tr><td><code>FormatoBooleano.HabilitadoDesabilitado</code></td><td>Habilitado</td><td>Desabilitado</td></tr>
+    </tbody>
+</table>
+<p class="obs">
+    Na leitura (<code>texto.ParaBool()</code>), todas as palavras acima são reconhecidas nos dois
+    sentidos, mais <code>"1"</code>/<code>"0"</code> e <code>"true"</code>/<code>"false"</code> — sempre
+    sem diferenciar maiúsculas/minúsculas.
+</p>
+
+<div class="caixa-demo">
+    <label>Digite qualquer palavra da tabela acima (ex.: "ativo", "N", "verdadeiro"):</label>
+    <input type="text" @bind="_textoBool" @bind:event="oninput" placeholder="ex.: ativo" />
+    <ul>
+        <li><code>.ParaBoolOuNulo()</code> → <strong>@(_textoBool.ParaBoolOuNulo()?.ParaTexto(FormatoBooleano.VerdadeiroFalso) ?? "null (não reconhecido)")</strong></li>
+        <li><code>.ParaTexto(AtivoInativo)</code> → <strong>@(_textoBool.ParaBoolOuNulo()?.ParaTexto(FormatoBooleano.AtivoInativo) ?? "—")</strong></li>
+    </ul>
+</div>
+
+<h2>Numérico</h2>
+
+<table class="tabela-doc">
+    <thead><tr><th>Assinatura</th><th>Descrição</th></tr></thead>
+    <tbody>
+        <tr><td><code>texto.ParaInt() / .ParaLong() / .ParaDecimal() / .ParaDouble() / .ParaFloat()</code></td><td>Lê vírgula ou ponto; lança em caso de erro</td></tr>
+        <tr><td><code>texto.ParaDecimal(emCasoErro: 0m)</code></td><td>Mesma leitura, com fallback</td></tr>
+        <tr><td><code>texto.ParaDecimalOuNulo()</code></td><td>Mesma leitura, nulo em vez de lançar</td></tr>
+        <tr><td><code>valor.ParaTexto(casasDecimais?, cultura?)</code></td><td>"10,25" — sem separador de milhar</td></tr>
+        <tr><td><code>valor.ParaTextoComMilhar(casasDecimais?, cultura?)</code></td><td>"1.234,56"</td></tr>
+        <tr><td><code>valor.ParaPorcentagem(casas?, valorJaEstaEmPercentual?, cultura?)</code></td><td>"12,5%"</td></tr>
+        <tr><td><code>texto.ParaDecimalDePorcentagem()</code></td><td>"12,5%" → 0,125m (o caminho inverso)</td></tr>
+    </tbody>
+</table>
+<p class="obs">
+    Cultura e casas decimais seguem a prioridade: parâmetro explícito na chamada &gt; appsettings do
+    site (<code>ConversaoConfiguracao.Inicializar</code>, seção <code>BBiCore:Conversao</code>) &gt;
+    pt-BR / 2 casas.
+</p>
+
+<div class="caixa-demo">
+    <label>Digite um número (vírgula ou ponto, ex.: "1234,5" ou "1234.5"):</label>
+    <input type="text" @bind="_textoNumero" @bind:event="oninput" placeholder="ex.: 1234,5" />
+    <ul>
+        <li><code>.ParaDecimalOuNulo()</code> → <strong>@(_textoNumero.ParaDecimalOuNulo()?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null (inválido)")</strong> (valor cru, o que vai para o banco)</li>
+        <li><code>.ParaTextoComMilhar()</code> → <strong>@(_textoNumero.ParaDecimalOuNulo()?.ParaTextoComMilhar() ?? "—")</strong></li>
+        <li><code>.ParaPorcentagem()</code> → <strong>@(_textoNumero.ParaDecimalOuNulo()?.ParaPorcentagem() ?? "—")</strong> (assume que o número já é a fração, ex.: 0,125 → 12,50%)</li>
+    </ul>
+</div>
+
+<h2>Data e hora</h2>
+
+<p>
+    <code>EstiloData</code> × <code>EstiloHora</code> combinados livremente em
+    <code>data.ParaTexto(estiloData, estiloHora)</code> — exemplo com
+    <strong>@_amostraData.ToString("dd/MM/yyyy HH:mm:ss")</strong>:
+</p>
+
+<table class="tabela-doc">
+    <thead>
+        <tr>
+            <th>EstiloData ↓ / EstiloHora →</th>
+            @foreach (EstiloHora eh in Enum.GetValues<EstiloHora>())
+            {
+                <th>@eh</th>
+            }
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (EstiloData ed in Enum.GetValues<EstiloData>())
+        {
+            <tr>
+                <td><code>@ed</code></td>
+                @foreach (EstiloHora eh in Enum.GetValues<EstiloHora>())
+                {
+                    <td>@_amostraData.ParaTexto(ed, eh)</td>
+                }
+            </tr>
+        }
+    </tbody>
+</table>
+<p class="obs">
+    Fora dos estilos prontos: <code>data.ParaTexto(formato: "yyyy-MM-dd")</code> aceita qualquer
+    formato .NET cru (ex.: ISO para API externa). Leitura: <code>texto.ParaDataHora()</code> /
+    <code>.ParaData()</code> / <code>.ParaHora()</code> (aliases da mesma engine), sempre com o trio
+    lança/fallback/nulo.
+</p>
+
+<div class="caixa-demo">
+    <label>Digite uma data (dd/MM/yyyy ou dd/MM/yyyy HH:mm):</label>
+    <input type="text" @bind="_textoData" @bind:event="oninput" placeholder="ex.: 15/07/2026 14:30" />
+    <ul>
+        <li><code>.ParaDataHoraOuNulo()</code> → <strong>@(_textoData.ParaDataHoraOuNulo()?.ParaTexto(EstiloData.ComDiaSemanaCompleto, EstiloHora.Curta) ?? "null (inválida)")</strong></li>
+    </ul>
+</div>
+
+<h2>Char</h2>
+
+<table class="tabela-doc">
+    <thead><tr><th>Assinatura</th><th>Descrição</th></tr></thead>
+    <tbody>
+        <tr><td><code>texto.ParaChar() / .ParaChar(emCasoErro) / .ParaCharOuNulo()</code></td><td>Primeiro caractere (nulo/vazio vira erro)</td></tr>
+        <tr><td><code>valor.ParaTexto()</code></td><td><code>char</code> → texto (com overload nulável e <code>emCasoNulo</code>)</td></tr>
+    </tbody>
+</table>
+
+<h2>Enum e dropdown</h2>
+
+<p>
+    Enum de exemplo só desta página, com <code>[Display]</code> num membro e sem atributo no outro
+    (pra mostrar a checagem dupla <code>[Display]</code> → <code>[Description]</code> → nome do membro):
+</p>
+<pre class="bloco-codigo">private enum SaborExemplo
+{
+    [Display(Name = "Arroz branco")] Arroz = 1,
+    [Display(Name = "Feijão carioca")] Feijao = 2,
+    Macarrao = 3   // sem atributo: ParaDescricao() cai no nome do membro
+}</pre>
+
+<div class="caixa-demo">
+    <ul>
+        <li><code>SaborExemplo.Macarrao.ParaInt()</code> → <strong>@(SaborExemplo.Macarrao.ParaInt())</strong></li>
+        <li><code>SaborExemplo.Feijao.ParaDescricao()</code> → <strong>@(SaborExemplo.Feijao.ParaDescricao())</strong></li>
+        <li><code>SaborExemplo.Macarrao.ParaDescricao()</code> (sem [Display]) → <strong>@(SaborExemplo.Macarrao.ParaDescricao())</strong></li>
+        <li><code>2.ParaEnum&lt;SaborExemplo&gt;()</code> → <strong>@(2.ParaEnum<SaborExemplo>())</strong></li>
+        <li><code>"Arroz branco".ParaEnumPelaDescricao&lt;SaborExemplo&gt;()</code> → <strong>@("Arroz branco".ParaEnumPelaDescricao<SaborExemplo>())</strong></li>
+    </ul>
+
+    <label>Dropdown gerado por <code>ParaOpcoesDropdown&lt;SaborExemplo&gt;()</code>:</label>
+    <select @bind="_saborSelecionado">
+        @foreach (OpcaoDropdown<SaborExemplo> opcao in ParaOpcoesDropdown<SaborExemplo>(incluirOpcaoEscolha: true))
+        {
+            <option value="@opcao.Valor">@opcao.Texto</option>
+        }
+    </select>
+    <span>selecionado: <strong>@_saborSelecionado</strong></span>
+</div>
+
+@code {
+    private enum SaborExemplo
+    {
+        [Display(Name = "Arroz branco")] Arroz = 1,
+        [Display(Name = "Feijão carioca")] Feijao = 2,
+        Macarrao = 3
+    }
+
+    private string _textoBool = "ativo";
+    private string _textoNumero = "1234,5";
+    private string _textoData = "15/07/2026 14:30";
+    private readonly DateTime _amostraData = new(2026, 7, 15, 14, 30, 45);
+    private SaborExemplo _saborSelecionado = SaborExemplo.Macarrao;
+}

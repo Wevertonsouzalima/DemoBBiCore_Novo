@@ -1,0 +1,51 @@
+id,titulo,genero,nota_media,episodios,ano_lancamento,status
+1,Tokyo Revenger Saga,Ação,9.02,74,2009,Concluído
+2,Blazor Drive Saga,Sci-Fi,8.51,20,1996,Concluído
+3,Steins Gate Part II,Ação,8.41,119,2009,Em lançamento
+4,Shunjuu Touring Alternative,Ação,9.08,52,2022,Em lançamento
+5,Frieren Journey Chronicles,Drama,9.75,98,2001,Concluído
+6,Chainsaw Man Saga,Mistério,9.38,79,1997,Hiato
+7,Monster Hunt,Sci-Fi,9.81,108,2000,Hiato
+8,Frieren Journey Online,Drama,8.9,23,2009,Em lançamento
+9,Dragon Soul Part II,Sci-Fi,7.79,128,2018,Concluído
+10,Spy Family Online,Drama,8.78,30,2005,Hiato
+11,Blazor Drive Part II,Fantasia,8.07,81,2009,Hiato
+12,Spy Family X,Drama,9.29,92,2020,Em lançamento
+13,Dragon Soul Part II,Mistério,7.22,139,2020,Hiato
+14,Monster Hunt Chronicles,Comédia,6.97,79,2022,Hiato
+15,Chainsaw Man Online,Drama,9.89,47,2026,Concluído
+16,Query Master X Vol. 2,Fantasia,8.63,120,1999,Em lançamento
+17,Chainsaw Man Zero Vol. 4,Ação,8.81,41,2012,Hiato
+18,Spy Family Saga Vol. 4,Aventura,7.04,12,2011,Hiato
+19,Query Master Chronicles Vol. 2,Comédia,9.36,141,2007,Concluído
+20,Spy Family Chronicles Vol. 2,Mistério,8.16,40,2018,Em lançamento
+21,Steins Gate X Vol. 3,Sci-Fi,6.79,136,1999,Hiato
+22,Query Master Chronicles Vol. 3,Slice of Life,9.72,54,2011,Hiato
+23,Code Horizon Shippuden Vol. 3,Drama,8.92,114,2018,Em lançamento
+24,Database Zero Vol. 5,Sci-Fi,7.34,28,2016,Concluído
+25,Shunjuu Touring Vol. 3,Drama,6.52,27,2009,Concluído
+26,Database Zero X Vol. 4,Sci-Fi,8.25,83,2026,Concluído
+27,Cyberpunk Echoes Chronicles Vol. 5,Drama,9.17,116,2007,Concluído
+28,Dragon Soul Shippuden Vol. 4,Aventura,7.9,25,2001,Concluído
+29,Chainsaw Man Online Vol. 2,Drama,7.15,126,2003,Em lançamento
+30,Hunter World Alternative Vol. 5,Drama,9.47,31,2023,Hiato
+31,Dragon Soul X Vol. 2,Sci-Fi,9.65,72,2005,Em lançamento
+32,Monster Hunt Zero Vol. 3,Aventura,9.57,54,2019,Concluído
+33,Chainsaw Man Alternative Vol. 5,Comédia,7.94,136,2004,Concluído
+34,Frieren Journey Part II Vol. 2,Ação,9.04,26,1998,Hiato
+35,Monster Hunt Vol. 3,Ação,9.77,32,2006,Concluído
+36,Shunjuu Touring Saga Vol. 3,Aventura,6.91,75,1997,Hiato
+37,Dragon Soul Shippuden Vol. 4,Comédia,7.19,92,2010,Em lançamento
+38,Chainsaw Man Chronicles Vol. 4,Slice of Life,7.58,30,1995,Em lançamento
+39,Shunjuu Touring Saga Vol. 2,Drama,8.22,45,2017,Concluído
+40,Database Zero Part II Vol. 4,Comédia,7.04,89,1995,Hiato
+41,Code Horizon Vol. 4,Sci-Fi,9.69,46,2011,Concluído
+42,Database Zero Saga Vol. 3,Comédia,7.46,65,2016,Concluído
+43,Tokyo Revenger Alternative Vol. 5,Comédia,9.58,25,2000,Hiato
+44,Chainsaw Man Alternative Vol. 2,Ação,7.63,45,2011,Concluído
+45,Blazor Drive Zero Vol. 5,Ação,6.88,50,1997,Em lançamento
+46,Shunjuu Touring Vol. 3,Aventura,6.93,90,2018,Concluído
+47,Database Zero Online Vol. 3,Drama,8.77,102,2021,Hiato
+48,Blazor Drive Chronicles Vol. 3,Fantasia,9.82,57,2021,Concluído
+49,Hunter World Online Vol. 5,Drama,7.41,39,2019,Concluído
+50,Code Horizon Zero Vol. 3,Drama,9.28,129,2017,Em lançamento

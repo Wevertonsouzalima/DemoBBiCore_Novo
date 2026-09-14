@@ -1,0 +1,65 @@
+/* Estilos isolados do componente completo de e-mail. */
+.bbi-mail { display: flex; flex-direction: column; gap: 14px; }
+.bbi-mail__linha { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.bbi-mail__linha { grid-template-columns: 1fr; }
+.bbi-mail__campo { display: flex; flex-direction: column; gap: 5px; }
+.bbi-mail__campo--curto { max-width: 280px; }
+.bbi-mail__rotulo { font-size: 0.8rem; color: #94a3b8; }
+.bbi-mail__input {
+    padding: 9px 11px; border: 1px solid #334155; border-radius: 6px;
+    background: #020617; color: #e2e8f0; font-size: 0.9rem;
+}
+.bbi-mail__secao {
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1225;
+}
+.bbi-mail__titulo { font-size: 0.9rem; font-weight: 600; color: #93c5fd; }
+.bbi-mail__aviso {
+    padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;
+    background: #422006; color: #fed7aa; border: 1px solid #9a3412;
+}
+.bbi-mail__anexos { display: flex; flex-direction: column; gap: 6px; }
+.bbi-mail__anexo {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 8px 10px; border: 1px solid #1e293b; border-radius: 6px; background: #020617;
+    font-size: 0.85rem;
+}
+.bbi-mail__anexo-nome { color: #e2e8f0; font-family: monospace; }
+.bbi-mail__anexo-tipo { color: #64748b; font-size: 0.78rem; }
+.bbi-mail__anexo-excluir { color: #94a3b8; display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.bbi-mail__vazio { color: #64748b; font-size: 0.85rem; }
+.bbi-mail__anexo-acoes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.bbi-mail__caminho { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 260px; }
+.bbi-mail__caminho .bbi-mail__input { flex: 1; }
+.bbi-mail__acoes { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bbi-mail__botao {
+    padding: 9px 16px; border: none; border-radius: 8px;
+    background: #1d4ed8; color: #fff; cursor: pointer; font-size: 0.88rem;
+}
+.bbi-mail__botao:hover { background: #2563eb; }
+.bbi-mail__botao:disabled { opacity: 0.5; cursor: default; }
+.bbi-mail__botao--sec { background: #334155; font-size: 0.82rem; padding: 7px 12px; }
+.bbi-mail__botao--sec:hover { background: #475569; }
+.bbi-mail__botao--env { background: #047857; }
+.bbi-mail__botao--env:hover { background: #059669; }
+.bbi-mail__remover { padding: 4px 10px; border: none; border-radius: 4px; background: #7f1d1d; color: #fecaca; cursor: pointer; font-size: 0.78rem; }
+.bbi-mail__remover:hover { background: #991b1b; }
+.bbi-mail__nota { font-size: 0.8rem; color: #64748b; font-style: italic; }
+.bbi-mail__mensagem { font-size: 0.85rem; }
+.bbi-mail__mensagem--ok { color: #6ee7b7; }
+.bbi-mail__mensagem--erro { color: #fda4af; }
+/* Busca no menu do envelope */
+.bbi-mail__busca {
+    width: 100%; box-sizing: border-box; margin-bottom: 6px;
+    padding: 7px 9px; border: 1px solid #334155; border-radius: 6px;
+    background: #020617; color: #e2e8f0; font-size: 0.85rem;
+}
+.bbi-mail__aviso--erro { background: #4c0519; color: #fecdd3; border-color: #7f1d1d; }
+/* Selo de situação do template (rascunho/publicado). */
+.bbi-mail__situacao { padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.bbi-mail__situacao--rascunho { background: #78350f; color: #fde68a; }
+.bbi-mail__situacao--publicado { background: #065f46; color: #a7f3d0; }
+/* Aviso de sanitização (o HTML salvo difere do que o usuário escreveu). */
+.bbi-mail__remocoes { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.bbi-mail__remocoes code { background: #020617; padding: 1px 5px; border-radius: 3px; color: #fda4af; }
+.bbi-mail__nota { font-size: 0.8rem; color: #94a3b8; font-style: italic; }

@@ -1,0 +1,113 @@
+@*
+    =========================================================================
+     BBiCampoMoeda.razor  —  Campo de moeda brasileira
+    -------------------------------------------------------------------------
+     Exibe formatado (1.234,56). O @bind-Valor trabalha com decimal? NATIVO —
+     o EF grava com ponto decimal, sem conflito; a tela mostra vírgula. A
+     digitação é por centavos (da direita para a esquerda).
+
+     Depende de Mascaras.cs (mesma pasta) e do JS colocado BBiCampoMascarado.razor.js.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using BBiCore.Mascaras
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="bbi-campo">
+    @if (!string.IsNullOrEmpty(Rotulo))
+    {
+        <label class="bbi-campo__rotulo" for="@_id">@Rotulo</label>
+    }
+    <div class="bbi-campo__moeda">
+        @if (ComSimbolo)
+        {
+            <span class="bbi-campo__prefixo">R$</span>
+        }
+        <input id="@_id"
+               @ref="_elemento"
+               class="bbi-campo__input"
+               type="text"
+               inputmode="numeric"
+               placeholder="0,00"
+               value="@_exibido"
+               @onchange="AoMudar" />
+    </div>
+</div>
+
+@code {
+    /// <summary>Valor monetário (bindável), em decimal nativo.</summary>
+    [Parameter] public decimal? Valor { get; set; }
+
+    /// <summary>Notifica mudança do valor.</summary>
+    [Parameter] public EventCallback<decimal?> ValorChanged { get; set; }
+
+    /// <summary>Rótulo opcional.</summary>
+    [Parameter] public string? Rotulo { get; set; }
+
+    /// <summary>Se exibe o prefixo "R$".</summary>
+    [Parameter] public bool ComSimbolo { get; set; } = true;
+
+    /// <summary>Id único do input.</summary>
+    private readonly string _id = $"bbi-moeda-{Guid.NewGuid():N}";
+
+    /// <summary>Referência ao input.</summary>
+    private ElementReference _elemento;
+
+    /// <summary>Texto exibido.</summary>
+    private string _exibido = string.Empty;
+
+    /// <summary>Módulo JS de máscara.</summary>
+    private IJSObjectReference? _modulo;
+
+    /// <summary>Sincroniza a exibição quando o valor muda de fora.</summary>
+    protected override void OnParametersSet()
+        => _exibido = Valor.HasValue ? Moeda.Formatar(Valor.Value) : string.Empty;
+
+    /// <summary>Liga a máscara de moeda após a primeira renderização.</summary>
+    /// <param name="primeiraVez">Se é a primeira renderização.</param>
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+        {
+            _modulo = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/BBiCore/Mascaras/BBiCampoMascarado.razor.js");
+            await _modulo.InvokeVoidAsync("ligar", _elemento, "moeda");
+        }
+    }
+
+    /// <summary>Converte o texto digitado (centavos) em decimal e entrega no binding.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private async Task AoMudar(ChangeEventArgs e)
+    {
+        string texto = e.Value?.ToString() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(TextoMascara.SomenteDigitos(texto)))
+        {
+            _exibido = string.Empty;
+            Valor = null;
+            await ValorChanged.InvokeAsync(null);
+            return;
+        }
+
+        decimal valor = Moeda.DeDigitosCentavos(texto);
+        _exibido = Moeda.Formatar(valor);
+        Valor = valor;
+        await ValorChanged.InvokeAsync(valor);
+    }
+
+    /// <summary>Libera o módulo JS ao destruir o componente.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuito já encerrado; nada a fazer.
+            }
+        }
+    }
+}

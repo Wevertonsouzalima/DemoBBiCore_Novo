@@ -1,0 +1,345 @@
+@*
+    =========================================================================
+     BBiComporEmail.razor  —  Composição do corpo do e-mail
+    -------------------------------------------------------------------------
+     MODO NORMAL — a biblioteca é dona de 100% do HTML: imagem de cabeçalho +
+     texto + imagem de rodapé, em tabela Outlook-safe, com as imagens entrando
+     por cid:. Como o formato é fechado e conhecido, o assistente CONSEGUE
+     reabrir um template salvo neste modo: o texto é lido de volta do próprio
+     corpo (CorpoNormal.TentarLerTexto), sem precisar de uma segunda coluna
+     guardando-o — o corpo continua sendo a única fonte da verdade.
+
+     MODO AVANÇADO — o usuário escreve o HTML livremente. A ida é DEFINITIVA.
+     Aqui ele também pode inserir imagens no meio do corpo: escolhe do acervo e
+     a biblioteca gera o ContentId, que é exibido para ele referenciar por cid:.
+
+     As imagens NÃO são enviadas aqui: são ESCOLHIDAS do acervo (o usuário não
+     sobe a mesma logo em cada template) e vinculadas ao template com um papel.
+
+     Depende de: Email.cs, Anexos.cs, ServicoAnexos.cs, CorpoNormal.cs (mesma
+     pasta) e do módulo BBiCore.Templates.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using BBiCore.Email
+@using BBiCore.Templates
+@inject ServicoAnexos ServicoAnexos
+
+<div class="bbi-email">
+    <div class="bbi-email__topo">
+        <div class="bbi-email__modos">
+            <span class="bbi-email__modo @(EhNormal ? "bbi-email__modo--ativo" : "")">Normal</span>
+            <span class="bbi-email__seta">→</span>
+            <span class="bbi-email__modo @(!EhNormal ? "bbi-email__modo--ativo" : "")">Avançado</span>
+        </div>
+
+        <div class="bbi-email__topo-acoes">
+            @if (EhNormal)
+            {
+                <button type="button" class="bbi-email__acao" @onclick="IrParaAvancado">Ir para o modo avançado</button>
+                <span class="bbi-email__nota">A ida é definitiva: no avançado o HTML passa a ser seu.</span>
+            }
+            <button type="button" class="bbi-email__acao bbi-email__acao--prev" @onclick="AbrirPreview">Visualizar</button>
+        </div>
+    </div>
+
+    @if (_avisoFormato is not null)
+    {
+        <div class="bbi-email__aviso bbi-email__aviso--erro">@_avisoFormato</div>
+    }
+
+    @if (!TemplateSalvo)
+    {
+        <div class="bbi-email__aviso bbi-email__aviso--erro">
+            Salve o rascunho antes de escolher imagens — elas são vinculadas ao template, que precisa
+            existir primeiro.
+        </div>
+    }
+
+    <div class="bbi-email__editor-area">
+        @if (EhNormal)
+        {
+            <div class="bbi-email__bloco">
+                <span class="bbi-email__rotulo">Imagem de cabeçalho</span>
+                @if (_cabecalho is null)
+                {
+                    <select class="bbi-email__select" disabled="@(!TemplateSalvo)" @onchange="e => EscolherImagem(PapelAnexo.Cabecalho, e)">
+                        <option value="">— nenhuma —</option>
+                        @foreach (IAnexoAcervo imagem in _imagensDisponiveis)
+                        {
+                            <option value="@imagem.Id">@imagem.NomeArquivo</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <div class="bbi-email__escolhido">
+                        <span>@_cabecalho.Anexo.NomeArquivo</span>
+                        <button type="button" class="bbi-email__remover" @onclick="() => RemoverVinculo(_cabecalho)">Remover</button>
+                    </div>
+                }
+            </div>
+
+            <BBiCampoTemplate Motor="Motor"
+                              TipoDados="TipoDados"
+                              Fontes="Fontes"
+                              Multilinha="true"
+                              Rotulo="Texto do e-mail"
+                              Valor="_texto"
+                              ValorChanged="AoMudarTexto" />
+
+            <div class="bbi-email__bloco">
+                <span class="bbi-email__rotulo">Imagem de rodapé</span>
+                @if (_rodape is null)
+                {
+                    <select class="bbi-email__select" disabled="@(!TemplateSalvo)" @onchange="e => EscolherImagem(PapelAnexo.Rodape, e)">
+                        <option value="">— nenhuma —</option>
+                        @foreach (IAnexoAcervo imagem in _imagensDisponiveis)
+                        {
+                            <option value="@imagem.Id">@imagem.NomeArquivo</option>
+                        }
+                    </select>
+                }
+                else
+                {
+                    <div class="bbi-email__escolhido">
+                        <span>@_rodape.Anexo.NomeArquivo</span>
+                        <button type="button" class="bbi-email__remover" @onclick="() => RemoverVinculo(_rodape)">Remover</button>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <BBiCampoTemplate Motor="Motor"
+                              TipoDados="TipoDados"
+                              Fontes="Fontes"
+                              Multilinha="true"
+                              Rotulo="HTML do e-mail"
+                              Valor="Corpo"
+                              ValorChanged="AoMudarHtml" />
+
+            <div class="bbi-email__bloco">
+                <span class="bbi-email__rotulo">Imagens do corpo</span>
+                <p class="bbi-email__nota">
+                    Escolha uma imagem do acervo e use o <code>cid:</code> gerado no seu HTML —
+                    ex.: <code>&lt;img src="cid:..."&gt;</code>. Estas imagens vão <strong>embutidas</strong>,
+                    não aparecem como anexo para o destinatário.
+                </p>
+
+                <select class="bbi-email__select" disabled="@(!TemplateSalvo)" @onchange="e => EscolherImagem(PapelAnexo.Inline, e)">
+                    <option value="">— adicionar imagem ao corpo —</option>
+                    @foreach (IAnexoAcervo imagem in _imagensDisponiveis)
+                    {
+                        <option value="@imagem.Id">@imagem.NomeArquivo</option>
+                    }
+                </select>
+
+                @foreach (AnexoVinculado img in _imagensDoCorpo)
+                {
+                    <div class="bbi-email__cid">
+                        <span class="bbi-email__cid-nome">@img.Anexo.NomeArquivo</span>
+                        <code class="bbi-email__cid-valor">cid:@img.Vinculo.ContentId</code>
+                        <button type="button" class="bbi-email__remover" @onclick="() => RemoverVinculo(img)">Remover</button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @if (_previewAberto)
+    {
+        <div class="bbi-email__modal-fundo" @onclick="FecharPreview"></div>
+        <div class="bbi-email__modal">
+            <div class="bbi-email__modal-topo">
+                <span class="bbi-email__modal-titulo">Pré-visualização</span>
+                <button type="button" class="bbi-email__acao" @onclick="FecharPreview">Fechar</button>
+            </div>
+            <iframe class="bbi-email__modal-preview" sandbox="" srcdoc="@_previewHtml"></iframe>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Template sendo editado (traz o Id, usado para vincular os anexos).</summary>
+    [Parameter, EditorRequired] public ITemplateEmail Template { get; set; } = default!;
+
+    /// <summary>Tipo do objeto de dados que alimenta os campos e a validação.</summary>
+    [Parameter, EditorRequired] public Type TipoDados { get; set; } = default!;
+
+    /// <summary>Motor de marcadores configurado.</summary>
+    [Parameter, EditorRequired] public MotorTemplate Motor { get; set; } = default!;
+
+    /// <summary>Instância de exemplo para o preview aparecer preenchido.</summary>
+    [Parameter] public object? DadosExemplo { get; set; }
+
+    /// <summary>Corpo HTML do e-mail (bindável).</summary>
+    [Parameter] public string Corpo { get; set; } = string.Empty;
+
+    /// <summary>Notifica mudança do corpo.</summary>
+    [Parameter] public EventCallback<string> CorpoChanged { get; set; }
+
+    /// <summary>Modo de criação atual (bindável).</summary>
+    [Parameter] public OrigemCriacaoTemplate Origem { get; set; }
+
+    /// <summary>Notifica mudança do modo.</summary>
+    [Parameter] public EventCallback<OrigemCriacaoTemplate> OrigemChanged { get; set; }
+
+    /// <summary>Fontes que o menu de marcadores oferece.</summary>
+    [Parameter] public FontesCampo Fontes { get; set; } = FontesCampo.Todas;
+
+    /// <summary>Texto do bloco do modo normal.</summary>
+    private string _texto = string.Empty;
+
+    /// <summary>Imagens do acervo que este template pode usar.</summary>
+    private IReadOnlyList<IAnexoAcervo> _imagensDisponiveis = [];
+
+    /// <summary>Vínculo da imagem de cabeçalho, quando existe.</summary>
+    private AnexoVinculado? _cabecalho;
+
+    /// <summary>Vínculo da imagem de rodapé, quando existe.</summary>
+    private AnexoVinculado? _rodape;
+
+    /// <summary>Imagens posicionadas no corpo (modo avançado).</summary>
+    private IReadOnlyList<AnexoVinculado> _imagensDoCorpo = [];
+
+    /// <summary>Aviso exibido quando o HTML de um template normal não está no formato esperado.</summary>
+    private string? _avisoFormato;
+
+    /// <summary>Indica se o modal de preview está aberto.</summary>
+    private bool _previewAberto;
+
+    /// <summary>HTML capturado para o preview.</summary>
+    private string _previewHtml = string.Empty;
+
+    /// <summary>Indica se está no modo normal.</summary>
+    private bool EhNormal => Origem == OrigemCriacaoTemplate.Normal;
+
+    /// <summary>Indica que o template já existe na base — é o que permite vincular imagens a ele.</summary>
+    private bool TemplateSalvo => Template.Id != 0;
+
+    /// <summary>Carrega os anexos do template e, no modo normal, recupera o texto do próprio HTML.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        await CarregarAnexosAsync();
+
+        if (!EhNormal)
+            return;
+
+        // O corpo do modo normal foi gerado pela própria biblioteca: dá para ler o texto de volta.
+        if (CorpoNormal.TentarLerTexto(Corpo, out string texto))
+        {
+            _texto = texto;
+            return;
+        }
+
+        // Formato não reconhecido: alguém editou o HTML fora do assistente. Não adivinhamos —
+        // avisamos e passamos para o avançado, onde o usuário vê o HTML como ele está.
+        _avisoFormato = "O HTML deste template não está no formato do modo normal (foi editado por fora). "
+                      + "Abrimos no modo avançado para não alterar o conteúdo.";
+
+        Origem = OrigemCriacaoTemplate.Avancado;
+        await OrigemChanged.InvokeAsync(Origem);
+    }
+
+    /// <summary>Recarrega os anexos vinculados e a lista de imagens disponíveis no acervo.</summary>
+    private async Task CarregarAnexosAsync()
+    {
+        if (!TemplateSalvo)
+            return;
+
+        IReadOnlyList<AnexoVinculado> vinculados = await ServicoAnexos.ListarDoTemplateAsync(Template.Id);
+
+        _cabecalho = vinculados.FirstOrDefault(v => v.Vinculo.Papel == PapelAnexo.Cabecalho);
+        _rodape = vinculados.FirstOrDefault(v => v.Vinculo.Papel == PapelAnexo.Rodape);
+        _imagensDoCorpo = [.. vinculados.Where(v => v.Vinculo.Papel == PapelAnexo.Inline)];
+
+        // A lista de escolha é filtrada pelo contexto: aqui, só imagens.
+        _imagensDisponiveis = await ServicoAnexos.ListarParaEscolhaAsync(Template.Id, PapelAnexo.Inline);
+    }
+
+    /// <summary>Vincula uma imagem do acervo ao template, no papel indicado.</summary>
+    /// <param name="papel">Papel pretendido (cabeçalho, rodapé ou imagem do corpo).</param>
+    /// <param name="e">Evento da lista de escolha.</param>
+    private async Task EscolherImagem(PapelAnexo papel, ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out int idAnexo))
+            return;
+
+        IAnexoAcervo? imagem = _imagensDisponiveis.FirstOrDefault(i => i.Id == idAnexo);
+
+        if (imagem is null)
+            return;
+
+        // O ContentId é gerado pela biblioteca dentro do VincularAsync — nunca digitado.
+        ResultadoVinculo resultado = await ServicoAnexos.VincularAsync(Template.Id, imagem, papel);
+
+        if (!resultado.Sucesso)
+        {
+            _avisoFormato = resultado.Mensagem;
+            return;
+        }
+
+        await CarregarAnexosAsync();
+        await RegerarNormalAsync();
+    }
+
+    /// <summary>Remove o vínculo de uma imagem (o arquivo continua no acervo).</summary>
+    /// <param name="vinculado">Vínculo a remover.</param>
+    private async Task RemoverVinculo(AnexoVinculado? vinculado)
+    {
+        if (vinculado is null)
+            return;
+
+        await ServicoAnexos.DesvincularAsync(vinculado.Vinculo.Id);
+        await CarregarAnexosAsync();
+        await RegerarNormalAsync();
+    }
+
+    /// <summary>Recebe o texto do modo normal, regenera o HTML e notifica.</summary>
+    /// <param name="valor">Novo texto.</param>
+    private async Task AoMudarTexto(string valor)
+    {
+        _texto = valor;
+        await RegerarNormalAsync();
+    }
+
+    /// <summary>Recebe o HTML editado no modo avançado e notifica.</summary>
+    /// <param name="valor">Novo HTML.</param>
+    private async Task AoMudarHtml(string valor)
+    {
+        Corpo = valor;
+        await CorpoChanged.InvokeAsync(Corpo);
+    }
+
+    /// <summary>Regera o corpo do modo normal a partir do texto e das imagens vinculadas.</summary>
+    private async Task RegerarNormalAsync()
+    {
+        if (!EhNormal)
+            return;
+
+        Corpo = CorpoNormal.Gerar(_texto, _cabecalho?.Vinculo.ContentId, _rodape?.Vinculo.ContentId);
+        await CorpoChanged.InvokeAsync(Corpo);
+    }
+
+    /// <summary>Passa para o modo avançado. A partir daqui o HTML é do usuário e não há volta.</summary>
+    private async Task IrParaAvancado()
+    {
+        Origem = OrigemCriacaoTemplate.Avancado;
+        await OrigemChanged.InvokeAsync(Origem);
+        await CarregarAnexosAsync();
+    }
+
+    /// <summary>Abre o preview com o corpo resolvido pelo objeto de exemplo (quando houver).</summary>
+    private void AbrirPreview()
+    {
+        _previewHtml = DadosExemplo is not null
+            ? Motor.Resolver(Corpo, DadosExemplo).Texto
+            : Corpo;
+
+        _previewAberto = true;
+    }
+
+    /// <summary>Fecha o modal de preview.</summary>
+    private void FecharPreview() => _previewAberto = false;
+}

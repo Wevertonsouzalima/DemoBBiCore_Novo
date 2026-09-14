@@ -1,0 +1,41 @@
+/* Estilos isolados (CSS isolation) do componente BBiImportadorArquivo. */
+.bbi-importador__campo {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: 1px dashed #334155;
+    border-radius: 8px;
+    background: #0b1225;
+    color: #e2e8f0;
+    cursor: pointer;
+}
+
+.bbi-importador__input { max-width: 240px; color: #94a3b8; }
+.bbi-importador__status { margin-left: 10px; color: #38bdf8; }
+
+.bbi-importador__pendentes {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    background: #0b1225;
+}
+
+.bbi-importador__contagem { color: #94a3b8; font-size: 0.85rem; }
+.bbi-importador__lista { margin: 6px 0 10px; padding-left: 18px; color: #cbd5e1; font-size: 0.85rem; }
+
+.bbi-importador__btn {
+    padding: 8px 14px;
+    margin-right: 8px;
+    border: none;
+    border-radius: 6px;
+    background: #1d4ed8;
+    color: #fff;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.bbi-importador__btn:hover { background: #2563eb; }
+.bbi-importador__btn:disabled { opacity: 0.5; cursor: default; }
+.bbi-importador__btn--sec { background: #334155; }
+.bbi-importador__btn--sec:hover { background: #475569; }

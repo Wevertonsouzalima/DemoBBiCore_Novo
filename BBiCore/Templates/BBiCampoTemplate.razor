@@ -1,0 +1,321 @@
+@*
+    =========================================================================
+     BBiCampoTemplate.razor  —  Campo de texto com marcadores {{campo}}
+    -------------------------------------------------------------------------
+     Peça REUTILIZÁVEL: um campo (input ou textarea, via Multilinha) com menu
+     de inserção de campos (com busca) e validação de marcadores não
+     encontrados. Sem preview — é só a entrada de marcadores. Serve ao corpo e
+     ao envelope do e-mail e a qualquer outra tela que use templates.
+
+     Depende de MotorTemplate.cs (BBiCore.Templates) e do JS colocado
+     BBiCampoTemplate.razor.js (mesma pasta).
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using System.Globalization
+@using System.Text
+@using BBiCore.Templates
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="bbi-tpl">
+    @if (!string.IsNullOrEmpty(Rotulo))
+    {
+        <label class="bbi-tpl__rotulo" for="@_idCampo">@Rotulo</label>
+    }
+
+    @if (Multilinha)
+    {
+        <textarea id="@_idCampo"
+                  class="bbi-tpl__area"
+                  placeholder="@TextoDica"
+                  value="@Valor"
+                  @oninput="AoDigitar"
+                  @oncontextmenu="AbrirMenu"
+                  @oncontextmenu:preventDefault="true"></textarea>
+    }
+    else
+    {
+        <input id="@_idCampo"
+               class="bbi-tpl__input"
+               type="text"
+               placeholder="@TextoDica"
+               value="@Valor"
+               @oninput="AoDigitar"
+               @oncontextmenu="AbrirMenu"
+               @oncontextmenu:preventDefault="true" />
+    }
+
+    @if (MostrarFaltantes && _faltantes.Count > 0)
+    {
+        <div class="bbi-tpl__falhas">
+            <strong>Campos não encontrados:</strong>
+            @string.Join(", ", _faltantes.Select(f => "{{" + f + "}}"))
+        </div>
+    }
+
+    @if (_menuAberto)
+    {
+        <div class="bbi-tpl__backdrop" @onclick="FecharMenu"></div>
+        <div class="bbi-tpl__menu" style="left:@(_menuX)px; top:@(_menuY)px;">
+            <input @ref="_refBusca" class="bbi-tpl__busca" placeholder="Buscar campo…"
+                   value="@_busca" @oninput="e => _busca = e.Value?.ToString() ?? string.Empty" />
+
+            @foreach (IGrouping<GrupoCampo, CampoTemplate> grupo in CamposFiltrados.GroupBy(c => c.Grupo))
+            {
+                <div class="bbi-tpl__menu-grupo">@RotuloGrupo(grupo.Key)</div>
+                @foreach (CampoTemplate campo in grupo)
+                {
+                    <button type="button" class="bbi-tpl__menu-item" @onclick="() => InserirCampo(campo)">@campo.Rotulo</button>
+                }
+            }
+            @if (!CamposFiltrados.Any())
+            {
+                <div class="bbi-tpl__menu-vazio">Nenhum campo.</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Motor de marcadores configurado (variáveis e computados). Obrigatório.</summary>
+    [Parameter, EditorRequired] public MotorTemplate Motor { get; set; } = default!;
+
+    /// <summary>Tipo do objeto de dados que alimenta os campos e a validação. Obrigatório.</summary>
+    [Parameter, EditorRequired] public Type TipoDados { get; set; } = default!;
+
+    /// <summary>Texto do campo (bindável com <c>@bind-Valor</c>).</summary>
+    [Parameter] public string Valor { get; set; } = string.Empty;
+
+    /// <summary>Notifica mudança do texto (par de <see cref="Valor"/>).</summary>
+    [Parameter] public EventCallback<string> ValorChanged { get; set; }
+
+    /// <summary>Se verdadeiro, usa um textarea (várias linhas); caso contrário, um input.</summary>
+    [Parameter] public bool Multilinha { get; set; }
+
+    /// <summary>Fontes de campo que o menu oferece. Padrão: todas.</summary>
+    [Parameter] public FontesCampo Fontes { get; set; } = FontesCampo.Todas;
+
+    /// <summary>Rótulo opcional acima do campo.</summary>
+    [Parameter] public string? Rotulo { get; set; }
+
+    /// <summary>Texto de dica exibido no campo vazio (placeholder).</summary>
+    [Parameter] public string? TextoDica { get; set; }
+
+    /// <summary>Se o próprio campo exibe a lista de marcadores não encontrados.</summary>
+    [Parameter] public bool MostrarFaltantes { get; set; } = true;
+
+    /// <summary>Notifica a lista de marcadores não encontrados (para agregação externa).</summary>
+    [Parameter] public EventCallback<IReadOnlyList<string>> FaltantesChanged { get; set; }
+
+    /// <summary>Id único do campo (para o interop e o menu).</summary>
+    private readonly string _idCampo = $"bbi-tpl-{Guid.NewGuid():N}";
+
+    /// <summary>Campos disponíveis para inserção (conforme as fontes).</summary>
+    private IReadOnlyList<CampoTemplate> _campos = [];
+
+    /// <summary>Marcadores não encontrados.</summary>
+    private IReadOnlyList<string> _faltantes = [];
+
+    /// <summary>Texto da busca do menu.</summary>
+    private string _busca = string.Empty;
+
+    /// <summary>Referência à caixa de busca (foco automático).</summary>
+    private ElementReference _refBusca;
+
+    /// <summary>Sinaliza foco da busca no próximo render.</summary>
+    private bool _focarBusca;
+
+    /// <summary>Indica se o menu de contexto está aberto.</summary>
+    private bool _menuAberto;
+
+    /// <summary>Posição horizontal (px) do menu de contexto.</summary>
+    private double _menuX;
+
+    /// <summary>Posição vertical (px) do menu de contexto.</summary>
+    private double _menuY;
+
+    /// <summary>Fonte de cancelamento do debounce de validação.</summary>
+    private CancellationTokenSource? _ctsValidacao;
+
+    /// <summary>Módulo JS de interop.</summary>
+    private IJSObjectReference? _modulo;
+
+    /// <summary>Campos filtrados pela busca (nome e rótulo, sem acento/maiúscula).</summary>
+    private IEnumerable<CampoTemplate> CamposFiltrados
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_busca))
+                return _campos;
+
+            string alvo = Normalizar(_busca);
+            return _campos.Where(c => Normalizar(c.Nome).Contains(alvo) || Normalizar(c.Rotulo).Contains(alvo));
+        }
+    }
+
+    /// <summary>Recalcula os campos (conforme as fontes) e a validação quando os parâmetros mudam.</summary>
+    protected override void OnParametersSet()
+    {
+        _campos = ExtratorCamposTemplate.ListarTodos(TipoDados, Motor, Fontes);
+        AtualizarValidacao();
+    }
+
+    /// <summary>Carrega o módulo JS e trata o foco da busca após render.</summary>
+    /// <param name="primeiraVez">Se é a primeira renderização.</param>
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+            _modulo = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BBiCore/Templates/BBiCampoTemplate.razor.js");
+
+        if (_focarBusca)
+        {
+            _focarBusca = false;
+            try
+            {
+                await _refBusca.FocusAsync();
+            }
+            catch
+            {
+                // Elemento pode não estar pronto; ignora.
+            }
+        }
+    }
+
+    /// <summary>Trata a digitação no campo, notifica o binding e agenda a validação.</summary>
+    /// <param name="e">Evento de input.</param>
+    private async Task AoDigitar(ChangeEventArgs e)
+    {
+        Valor = e.Value?.ToString() ?? string.Empty;
+        await ValorChanged.InvokeAsync(Valor);
+        _ = AgendarValidacao();
+    }
+
+    /// <summary>Recalcula os marcadores não encontrados e notifica quem agrega.</summary>
+    private void AtualizarValidacao()
+    {
+        IReadOnlyList<string> novos = Motor.Validar(Valor, TipoDados);
+
+        // Só notifica quando a lista MUDA. Notificar sempre causaria laço infinito:
+        // o pai re-renderiza ao receber o callback, o que reexecuta OnParametersSet
+        // aqui, que notificaria de novo, e assim por diante.
+        if (MesmaLista(novos, _faltantes))
+            return;
+
+        _faltantes = novos;
+        _ = FaltantesChanged.InvokeAsync(_faltantes);
+    }
+
+    /// <summary>Compara duas listas de marcadores (mesma ordem e mesmo conteúdo).</summary>
+    /// <param name="a">Primeira lista.</param>
+    /// <param name="b">Segunda lista.</param>
+    /// <returns>Verdadeiro quando são equivalentes.</returns>
+    private static bool MesmaLista(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        if (a.Count != b.Count)
+            return false;
+
+        for (int i = 0; i < a.Count; i++)
+            if (!string.Equals(a[i], b[i], StringComparison.Ordinal))
+                return false;
+
+        return true;
+    }
+
+    /// <summary>Agenda a revalidação com debounce (evita recalcular a cada tecla no circuito).</summary>
+    private async Task AgendarValidacao()
+    {
+        _ctsValidacao?.Cancel();
+        CancellationTokenSource cts = new();
+        _ctsValidacao = cts;
+
+        try
+        {
+            await Task.Delay(300, cts.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        AtualizarValidacao();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Abre o menu de contexto na posição do clique, limpando a busca e pedindo foco.</summary>
+    /// <param name="e">Evento de mouse.</param>
+    private void AbrirMenu(MouseEventArgs e)
+    {
+        _menuX = e.ClientX;
+        _menuY = e.ClientY;
+        _busca = string.Empty;
+        _focarBusca = true;
+        _menuAberto = true;
+    }
+
+    /// <summary>Fecha o menu de contexto.</summary>
+    private void FecharMenu() => _menuAberto = false;
+
+    /// <summary>Insere o marcador do campo na posição do cursor, via interop.</summary>
+    /// <param name="campo">Campo selecionado.</param>
+    private async Task InserirCampo(CampoTemplate campo)
+    {
+        _menuAberto = false;
+
+        if (_modulo is not null)
+            await _modulo.InvokeVoidAsync("inserirNoCursor", _idCampo, "{{" + campo.Nome + "}}");
+    }
+
+    /// <summary>Remove acentos e caixa para busca insensível.</summary>
+    /// <param name="valor">Texto de entrada.</param>
+    /// <returns>Texto normalizado.</returns>
+    private static string Normalizar(string valor)
+    {
+        string decomposto = (valor ?? string.Empty).ToLowerInvariant().Normalize(NormalizationForm.FormD);
+        StringBuilder sb = new();
+
+        foreach (char c in decomposto)
+            if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+                sb.Append(c);
+
+        return sb.ToString();
+    }
+
+    /// <summary>Rótulo amigável do grupo de campos no menu.</summary>
+    /// <param name="grupo">Grupo do campo.</param>
+    /// <returns>Texto do cabeçalho do grupo.</returns>
+    private static string RotuloGrupo(GrupoCampo grupo)
+    {
+        switch (grupo)
+        {
+            case GrupoCampo.Objeto:
+                return "Campos do registro";
+            case GrupoCampo.VariavelSistema:
+                return "Variáveis do sistema";
+            case GrupoCampo.ValorAutomatico:
+                return "Valores automáticos";
+            default:
+                return "Campos";
+        }
+    }
+
+    /// <summary>Libera o módulo JS e o debounce ao destruir o componente.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        _ctsValidacao?.Cancel();
+        _ctsValidacao?.Dispose();
+
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuito já encerrado; nada a fazer.
+            }
+        }
+    }
+}

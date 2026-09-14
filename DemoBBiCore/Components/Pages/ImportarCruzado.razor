@@ -1,0 +1,117 @@
+@*
+    Página de teste do despivot (relatório cruzado). Demonstra o LeitorDespivotado
+    e as âncoras linhaInicio/colunaInicio. Harness de demonstração — não faz parte
+    da biblioteca.
+*@
+@page "/cruzado"
+@rendermode InteractiveServer
+@inject IWebHostEnvironment Ambiente
+
+<PageTitle>BBiCore — relatório cruzado (despivot)</PageTitle>
+
+<h1>BBiCore — relatório cruzado (despivot)</h1>
+
+<p class="intro">
+    Demonstra a peça <code>LeitorDespivotado</code>. O arquivo é uma matriz larga
+    (<code>rede</code> nas linhas; <code>SP, RJ, Fortaleza, Parana…</code> nas colunas; a quantidade em cada célula).
+    O leitor transforma cada célula em um registro <code>{ rede, cidade, quantidade }</code> e o
+    <strong>mesmo importador de sempre</strong> faz o resto. Células vazias não geram registro.
+</p>
+
+<section class="acao">
+    <BBiImportadorArquivo TEntidade="FatoMercado"
+                          Mapa="_mapa"
+                          Leitores="_leitores"
+                          Rotulo="Selecionar CSV cruzado"
+                          OnImportado="Receber" />
+
+    <button class="btn" @onclick="RodarExemplo">Exemplo cruzado</button>
+    <button class="btn btn--ghost" @onclick="RodarExemploDeslocado">Exemplo deslocado (linha 3, coluna 2)</button>
+</section>
+
+@if (_resultado is not null)
+{
+    <section class="bloco">
+        <h2>Resultado</h2>
+        <p class="resumo">
+            <span class="chip chip--total">@_resultado.Total registros</span>
+            <span class="chip chip--ok">@_resultado.TotalOk ok</span>
+            <span class="chip chip--falha">@_resultado.TotalFalha com falha</span>
+        </p>
+
+        @if (_resultado.Itens.Count > 0)
+        {
+            <table>
+                <thead>
+                    <tr><th>Rede</th><th>Cidade</th><th>Quantidade</th><th>Linha origem</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (FatoMercado m in _resultado.Itens)
+                    {
+                        <tr>
+                            <td>@m.Rede</td>
+                            <td>@m.Cidade</td>
+                            <td>@m.Quantidade</td>
+                            <td>@m.LinhaOrigem</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+}
+
+@code {
+    /// <summary>Último resultado obtido.</summary>
+    private ResultadoImportacao<FatoMercado>? _resultado;
+
+    /// <summary>Mapa longo { rede, cidade, quantidade, linha_origem }.</summary>
+    private readonly MapaImportacao<FatoMercado> _mapa = MapaMercado.Padrao();
+
+    /// <summary>Leitor despivotado padrão (matriz sem deslocamento). O despivot vive no consumidor.</summary>
+    private readonly IReadOnlyList<ILeitorTabular> _leitores =
+    [
+        new LeitorDespivotado(
+            interno: new LeitorCsv(),
+            colunasIdentificadoras: ["rede"],
+            nomeColunaChave: "cidade",
+            nomeColunaValor: "quantidade",
+            nomeColunaLinhaOrigem: "linha_origem")
+    ];
+
+    /// <summary>Recebe o resultado emitido pelo componente e atualiza a tela.</summary>
+    /// <param name="r">Resultado da importação.</param>
+    private void Receber(ResultadoImportacao<FatoMercado> r)
+    {
+        _resultado = r;
+        StateHasChanged();
+    }
+
+    /// <summary>Roda o despivot sobre a matriz simples embutida.</summary>
+    private void RodarExemplo()
+    {
+        string caminho = Path.Combine(Ambiente.WebRootPath, "exemplos", "mercados_cidades.csv");
+        using FileStream fs = File.OpenRead(caminho);
+        _resultado = ImportadorTabular.Importar(fs, "mercados_cidades.csv", _mapa, _leitores[0]);
+    }
+
+    /// <summary>
+    /// Roda o despivot sobre a matriz deslocada (2 linhas de título e 1 coluna vazia à esquerda):
+    /// o cabeçalho está na linha 3 e a matriz começa na coluna 2.
+    /// </summary>
+    private void RodarExemploDeslocado()
+    {
+        ILeitorTabular leitor = new LeitorDespivotado(
+            interno: new LeitorCsv(),
+            colunasIdentificadoras: ["rede"],
+            nomeColunaChave: "cidade",
+            nomeColunaValor: "quantidade",
+            nomeColunaLinhaOrigem: "linha_origem",
+            linhaInicio: 3,
+            colunaInicio: 2);
+
+        string caminho = Path.Combine(Ambiente.WebRootPath, "exemplos", "mercados_cidades_deslocado.csv");
+        using FileStream fs = File.OpenRead(caminho);
+        _resultado = ImportadorTabular.Importar(fs, "mercados_cidades_deslocado.csv", _mapa, leitor);
+    }
+}

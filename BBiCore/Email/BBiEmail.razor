@@ -1,0 +1,533 @@
+@*
+    =========================================================================
+     BBiEmail.razor  —  Componente completo de e-mail
+    -------------------------------------------------------------------------
+     Compõe o BBiComporEmail (corpo) e adiciona o envelope, os anexos, a
+     situação (rascunho/publicado) e as ações.
+
+     ANEXOS: o usuário ESCOLHE do acervo — arquivos cadastrados uma vez e
+     reutilizáveis. A lista é filtrada pelo contexto: aqui aparecem os anexos
+     que o destinatário BAIXA (as imagens do corpo ficam no compositor, porque
+     são outra coisa: vão embutidas e não aparecem no clipe do Outlook).
+
+     SANITIZAÇÃO: ao salvar, a biblioteca limpa o HTML automaticamente. Se algo
+     for removido, o usuário é AVISADO (ele precisa entender por que o que colou
+     mudou) e o log registra o que saiu.
+
+     Depende de: Email.cs, EnvioEmail.cs, Anexos.cs, ServicoAnexos.cs.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using BBiCore.Email
+@using BBiCore.Templates
+@implements IAsyncDisposable
+@inject IServicoEmail ServicoEmail
+@inject ServicoAnexos ServicoAnexos
+@inject IJSRuntime JS
+
+<div class="bbi-mail">
+    <div class="bbi-mail__campo">
+        <label class="bbi-mail__rotulo" for="@_idNome">Nome do template</label>
+        <input id="@_idNome" class="bbi-mail__input" type="text"
+               value="@Template.Nome"
+               @oninput="e => Template.Nome = e.Value?.ToString() ?? string.Empty" />
+    </div>
+
+    <BBiCampoTemplate Motor="Motor" TipoDados="TipoDados" Fontes="FontesCampo.Todas"
+                      Rotulo="Assunto" Valor="Template.Assunto" ValorChanged="v => Template.Assunto = v" />
+
+    <div class="bbi-mail__linha">
+        <BBiCampoTemplate Motor="Motor" TipoDados="TipoDados" Fontes="FontesCampo.EnderecoEmail"
+                          Rotulo="Para (separe por ;)" Valor="Template.Destinatarios" ValorChanged="AoMudarPara" />
+
+        <div class="bbi-mail__campo">
+            <label class="bbi-mail__rotulo" for="@_idClass">Classificação</label>
+            <select id="@_idClass" class="bbi-mail__input" value="@Template.Classificacao" @onchange="AoMudarClassificacao">
+                <option value="@ClassificacaoEmail.Interno">Interno</option>
+                <option value="@ClassificacaoEmail.Confidencial">Confidencial</option>
+                <option value="@ClassificacaoEmail.Publico">Público</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="bbi-mail__linha">
+        <BBiCampoTemplate Motor="Motor" TipoDados="TipoDados" Fontes="FontesCampo.EnderecoEmail"
+                          Rotulo="Cc" Valor="Template.Cc" ValorChanged="AoMudarCc" />
+        <BBiCampoTemplate Motor="Motor" TipoDados="TipoDados" Fontes="FontesCampo.EnderecoEmail"
+                          Rotulo="Cco" Valor="Template.Cco" ValorChanged="AoMudarCco" />
+    </div>
+
+    @if (_avisoEnderecos is not null)
+    {
+        <div class="bbi-mail__aviso bbi-mail__aviso--erro">Endereços: @_avisoEnderecos</div>
+    }
+
+    <div class="bbi-mail__secao">
+        <span class="bbi-mail__titulo">Corpo</span>
+        <BBiComporEmail Template="Template"
+                        TipoDados="TipoDados"
+                        Motor="Motor"
+                        DadosExemplo="DadosExemplo"
+                        @bind-Corpo="Template.Corpo"
+                        @bind-Origem="Template.OrigemCriacao" />
+    </div>
+
+    <div class="bbi-mail__secao">
+        <span class="bbi-mail__titulo">Anexos</span>
+        <p class="bbi-mail__nota">Arquivos que o destinatário baixa. Escolha do acervo.</p>
+
+        @if (!TemplateSalvo)
+        {
+            <div class="bbi-mail__aviso bbi-mail__aviso--erro">
+                Salve o rascunho antes de anexar arquivos — o anexo é vinculado ao template, que
+                precisa existir primeiro.
+            </div>
+        }
+
+        <select class="bbi-mail__input" disabled="@(!TemplateSalvo)" @onchange="EscolherAnexo">
+            <option value="">— adicionar anexo —</option>
+            @foreach (IAnexoAcervo disponivel in _anexosDisponiveis)
+            {
+                <option value="@disponivel.Id">@disponivel.NomeArquivo</option>
+            }
+        </select>
+
+        <div class="bbi-mail__anexos">
+            @foreach (AnexoVinculado anexo in _anexos)
+            {
+                <div class="bbi-mail__anexo">
+                    <span class="bbi-mail__anexo-nome">@anexo.Anexo.NomeArquivo</span>
+                    <span class="bbi-mail__anexo-tipo">@DescreverObtencao(anexo.Anexo.ModoObtencao)</span>
+                    <button type="button" class="bbi-mail__remover" @onclick="() => RemoverAnexo(anexo)">Remover</button>
+                </div>
+            }
+            @if (_anexos.Count == 0)
+            {
+                <span class="bbi-mail__vazio">Nenhum anexo.</span>
+            }
+        </div>
+
+        <div class="bbi-mail__linha">
+            <div class="bbi-mail__campo bbi-mail__campo--curto">
+                <label class="bbi-mail__rotulo" for="@_idFalha">Em caso de falha no anexo</label>
+                <select id="@_idFalha" class="bbi-mail__input" value="@Template.AcaoNaFalhaDeAnexo" @onchange="AoMudarFalhaAnexo">
+                    <option value="@AcaoFalhaAnexo.EnviarMesmoAssim">Enviar mesmo assim</option>
+                    <option value="@AcaoFalhaAnexo.FalharEnvio">Falhar o envio</option>
+                </select>
+            </div>
+
+            <div class="bbi-mail__campo bbi-mail__campo--curto">
+                <label class="bbi-mail__rotulo" for="@_idFalhaMarcador">Em caso de campo sem valor</label>
+                <select id="@_idFalhaMarcador" class="bbi-mail__input" value="@Template.AcaoNaFalhaDeMarcador" @onchange="AoMudarFalhaMarcador">
+                    <option value="@AcaoFalhaMarcador.FalharEnvio">Falhar o envio</option>
+                    <option value="@AcaoFalhaMarcador.EnviarMesmoAssim">Enviar sem o trecho</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="bbi-mail__acoes">
+        <span class="bbi-mail__situacao bbi-mail__situacao--@(Template.Situacao == SituacaoTemplate.Rascunho ? "rascunho" : "publicado")">
+            @(Template.Situacao == SituacaoTemplate.Rascunho ? "Rascunho" : "Publicado")
+        </span>
+
+        <button type="button" class="bbi-mail__botao bbi-mail__botao--sec" @onclick="SalvarRascunho" disabled="@_ocupado">Salvar rascunho</button>
+        <button type="button" class="bbi-mail__botao" @onclick="Publicar" disabled="@_ocupado">Publicar</button>
+        <button type="button" class="bbi-mail__botao bbi-mail__botao--sec" @onclick="GerarEml" disabled="@(_ocupado || DadosExemplo is null)">Gerar .eml</button>
+        <button type="button" class="bbi-mail__botao bbi-mail__botao--env" @onclick="EnviarTeste" disabled="@(_ocupado || DadosExemplo is null)">Enviar teste</button>
+        <button type="button" class="bbi-mail__botao bbi-mail__botao--sec" @onclick="TestarConexao" disabled="@_ocupado">Testar conexão</button>
+
+        @if (_mensagem is not null)
+        {
+            <span class="bbi-mail__mensagem @(_ok ? "bbi-mail__mensagem--ok" : "bbi-mail__mensagem--erro")">@_mensagem</span>
+        }
+    </div>
+
+    @if (_remocoes.Count > 0)
+    {
+        <div class="bbi-mail__aviso bbi-mail__aviso--erro">
+            <strong>O HTML salvo é diferente do que você escreveu.</strong>
+            Removemos o que pode executar código (o restante foi preservado):
+            <ul class="bbi-mail__remocoes">
+                @foreach (RemocaoHtml remocao in _remocoes)
+                {
+                    <li><code>@remocao.Elemento</code> — @remocao.Motivo</li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+@code {
+    /// <summary>Template de e-mail sendo editado.</summary>
+    [Parameter, EditorRequired] public ITemplateEmail Template { get; set; } = default!;
+
+    /// <summary>Tipo do objeto de dados para campos e validação.</summary>
+    [Parameter, EditorRequired] public Type TipoDados { get; set; } = default!;
+
+    /// <summary>Motor de marcadores configurado.</summary>
+    [Parameter, EditorRequired] public MotorTemplate Motor { get; set; } = default!;
+
+    /// <summary>Instância de exemplo para preview, .eml e envio de teste.</summary>
+    [Parameter] public object? DadosExemplo { get; set; }
+
+    /// <summary>Disparado após salvar (rascunho ou publicação).</summary>
+    [Parameter] public EventCallback<ITemplateEmail> OnSalvo { get; set; }
+
+    /// <summary>Disparado após o envio de teste, com o resultado.</summary>
+    [Parameter] public EventCallback<ResultadoEnvio> OnEnviado { get; set; }
+
+    /// <summary>Para onde vai o .eml gerado. Combinável (bytes, arquivo, caixa postal).</summary>
+    [Parameter] public DestinoRascunho DestinosDoRascunho { get; set; } = DestinoRascunho.Bytes;
+
+    /// <summary>Id do campo Nome.</summary>
+    private readonly string _idNome = $"bbi-nome-{Guid.NewGuid():N}";
+
+    /// <summary>Id do campo Classificação.</summary>
+    private readonly string _idClass = $"bbi-class-{Guid.NewGuid():N}";
+
+    /// <summary>Id do campo de política de falha de anexo.</summary>
+    private readonly string _idFalha = $"bbi-falha-{Guid.NewGuid():N}";
+
+    /// <summary>Id do campo de política de marcador sem valor.</summary>
+    private readonly string _idFalhaMarcador = $"bbi-falha-marc-{Guid.NewGuid():N}";
+
+    /// <summary>Anexos (papel Anexo) vinculados ao template.</summary>
+    private IReadOnlyList<AnexoVinculado> _anexos = [];
+
+    /// <summary>Arquivos do acervo que podem ser anexados a este template.</summary>
+    private IReadOnlyList<IAnexoAcervo> _anexosDisponiveis = [];
+
+    /// <summary>Aviso sobre problemas nos endereços.</summary>
+    private string? _avisoEnderecos;
+
+    /// <summary>O que a sanitização removeu do HTML no último salvamento.</summary>
+    private IReadOnlyList<RemocaoHtml> _remocoes = [];
+
+    /// <summary>Indica processamento em andamento.</summary>
+    private bool _ocupado;
+
+    /// <summary>Mensagem de retorno da última ação.</summary>
+    private string? _mensagem;
+
+    /// <summary>Se a última ação deu certo.</summary>
+    private bool _ok;
+
+    /// <summary>Debounce da validação de endereços.</summary>
+    private CancellationTokenSource? _ctsEndereco;
+
+    /// <summary>Indica que o template já existe na base — é o que permite vincular anexos a ele.</summary>
+    private bool TemplateSalvo => Template.Id != 0;
+
+    /// <summary>Módulo JS usado para baixar o .eml.</summary>
+    private IJSObjectReference? _modulo;
+
+    /// <summary>Carrega os anexos vinculados e o acervo disponível.</summary>
+    protected override async Task OnInitializedAsync() => await CarregarAnexosAsync();
+
+    /// <summary>Carrega o módulo JS após a primeira renderização.</summary>
+    /// <param name="primeiraVez">Se é a primeira renderização.</param>
+    protected override async Task OnAfterRenderAsync(bool primeiraVez)
+    {
+        if (primeiraVez)
+            _modulo = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BBiCore/Email/BBiEmail.razor.js");
+    }
+
+    /// <summary>Recarrega a lista de anexos e o acervo disponível para este template.</summary>
+    private async Task CarregarAnexosAsync()
+    {
+        if (!TemplateSalvo)
+            return;
+
+        IReadOnlyList<AnexoVinculado> vinculados = await ServicoAnexos.ListarDoTemplateAsync(Template.Id);
+
+        // Aqui só os que o destinatário BAIXA: as imagens embutidas são do compositor.
+        _anexos = [.. vinculados.Where(v => v.Vinculo.Papel == PapelAnexo.Anexo)];
+        _anexosDisponiveis = await ServicoAnexos.ListarParaEscolhaAsync(Template.Id, PapelAnexo.Anexo);
+    }
+
+    /// <summary>Vincula um arquivo do acervo como anexo do template.</summary>
+    /// <param name="e">Evento da lista de escolha.</param>
+    private async Task EscolherAnexo(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out int idAnexo))
+            return;
+
+        IAnexoAcervo? arquivo = _anexosDisponiveis.FirstOrDefault(a => a.Id == idAnexo);
+
+        if (arquivo is null)
+            return;
+
+        ResultadoVinculo resultado = await ServicoAnexos.VincularAsync(Template.Id, arquivo, PapelAnexo.Anexo);
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+
+        await CarregarAnexosAsync();
+    }
+
+    /// <summary>Remove o vínculo de um anexo (o arquivo continua no acervo).</summary>
+    /// <param name="anexo">Anexo a desvincular.</param>
+    private async Task RemoverAnexo(AnexoVinculado anexo)
+    {
+        await ServicoAnexos.DesvincularAsync(anexo.Vinculo.Id);
+        await CarregarAnexosAsync();
+    }
+
+    /// <summary>Descreve, para a tela, de onde o conteúdo do anexo vem.</summary>
+    /// <param name="modo">Modo de obtenção.</param>
+    /// <returns>Texto exibível.</returns>
+    private static string DescreverObtencao(ModoObtencaoAnexo modo)
+    {
+        switch (modo)
+        {
+            case ModoObtencaoAnexo.BytesNoBanco:
+                return "arquivo guardado";
+            case ModoObtencaoAnexo.CaminhoFixo:
+                return "arquivo no servidor";
+            case ModoObtencaoAnexo.CaminhoDinamico:
+                return "caminho dinâmico";
+            default:
+                return string.Empty;
+        }
+    }
+
+    /// <summary>Atualiza os destinatários e revalida os endereços.</summary>
+    /// <param name="valor">Novo texto.</param>
+    private async Task AoMudarPara(string valor)
+    {
+        Template.Destinatarios = valor;
+        await AgendarValidacaoEnderecos();
+    }
+
+    /// <summary>Atualiza o Cc e revalida os endereços.</summary>
+    /// <param name="valor">Novo texto.</param>
+    private async Task AoMudarCc(string valor)
+    {
+        Template.Cc = valor;
+        await AgendarValidacaoEnderecos();
+    }
+
+    /// <summary>Atualiza o Cco e revalida os endereços.</summary>
+    /// <param name="valor">Novo texto.</param>
+    private async Task AoMudarCco(string valor)
+    {
+        Template.Cco = valor;
+        await AgendarValidacaoEnderecos();
+    }
+
+    /// <summary>Atualiza a classificação.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private void AoMudarClassificacao(ChangeEventArgs e)
+    {
+        if (Enum.TryParse(e.Value?.ToString(), out ClassificacaoEmail valor))
+            Template.Classificacao = valor;
+    }
+
+    /// <summary>Atualiza a política de falha de anexo.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private void AoMudarFalhaAnexo(ChangeEventArgs e)
+    {
+        if (Enum.TryParse(e.Value?.ToString(), out AcaoFalhaAnexo valor))
+            Template.AcaoNaFalhaDeAnexo = valor;
+    }
+
+    /// <summary>Atualiza a política de marcador sem valor.</summary>
+    /// <param name="e">Evento de mudança.</param>
+    private void AoMudarFalhaMarcador(ChangeEventArgs e)
+    {
+        if (Enum.TryParse(e.Value?.ToString(), out AcaoFalhaMarcador valor))
+            Template.AcaoNaFalhaDeMarcador = valor;
+    }
+
+    /// <summary>Revalida os endereços com debounce, sobre o texto já resolvido.</summary>
+    private async Task AgendarValidacaoEnderecos()
+    {
+        _ctsEndereco?.Cancel();
+        CancellationTokenSource cts = new();
+        _ctsEndereco = cts;
+
+        try
+        {
+            await Task.Delay(300, cts.Token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+
+        _avisoEnderecos = null;
+
+        if (DadosExemplo is not null)
+        {
+            List<string> problemas = [];
+            ChecarEndereco("Para", Template.Destinatarios, obrigatorio: true, problemas);
+            ChecarEndereco("Cc", Template.Cc, obrigatorio: false, problemas);
+            ChecarEndereco("Cco", Template.Cco, obrigatorio: false, problemas);
+
+            if (problemas.Count > 0)
+                _avisoEnderecos = string.Join(" | ", problemas);
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Resolve um campo de endereços com o exemplo e acumula os problemas.</summary>
+    /// <param name="rotulo">Rótulo do campo.</param>
+    /// <param name="campo">Texto cru do campo.</param>
+    /// <param name="obrigatorio">Se o campo precisa ter ao menos um endereço.</param>
+    /// <param name="saida">Lista que recebe o problema.</param>
+    private void ChecarEndereco(string rotulo, string? campo, bool obrigatorio, List<string> saida)
+    {
+        string resolvido = Motor.Resolver(campo ?? string.Empty, DadosExemplo).Texto;
+        ProblemasEndereco problemas = ValidadorEnderecos.Validar(resolvido, obrigatorio);
+
+        if (!problemas.Ok)
+            saida.Add($"{rotulo}: {problemas.Mensagem}");
+    }
+
+    /// <summary>Salva como rascunho: sem validação (pode estar incompleto), e não pode ser enviado.</summary>
+    private async Task SalvarRascunho()
+    {
+        Template.Situacao = SituacaoTemplate.Rascunho;
+        await SalvarAsync("Rascunho salvo.");
+    }
+
+    /// <summary>Publica: exige as validações de envio e libera o template para os sistemas.</summary>
+    private async Task Publicar()
+    {
+        string? problema = ValidarParaPublicar();
+
+        if (problema is not null)
+        {
+            _ok = false;
+            _mensagem = problema;
+            return;
+        }
+
+        Template.Situacao = SituacaoTemplate.Publicado;
+        await SalvarAsync("Template publicado.");
+    }
+
+    /// <summary>Grava o template. A sanitização do HTML é automática e o que for removido é avisado aqui.</summary>
+    /// <param name="confirmacao">Mensagem exibida em caso de sucesso.</param>
+    private async Task SalvarAsync(string confirmacao)
+    {
+        _ocupado = true;
+        _mensagem = null;
+        _remocoes = [];
+
+        ResultadoSalvamento resultado = await ServicoEmail.SalvarTemplateAsync(Template);
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Sucesso ? confirmacao : resultado.Mensagem;
+
+        if (resultado.HtmlAlterado && resultado.Remocoes is not null)
+            _remocoes = resultado.Remocoes;
+
+        _ocupado = false;
+
+        if (resultado.Sucesso)
+        {
+            // O template recém-criado ganhou Id: agora dá para vincular anexos a ele.
+            await CarregarAnexosAsync();
+            await OnSalvo.InvokeAsync(Template);
+        }
+    }
+
+    /// <summary>Confere o mínimo necessário para publicar (o rascunho não passa por isto).</summary>
+    /// <returns>Descrição do problema, ou nulo quando está tudo certo.</returns>
+    private string? ValidarParaPublicar()
+    {
+        if (string.IsNullOrWhiteSpace(Template.Nome))
+            return "Informe o nome do template para publicar.";
+
+        if (string.IsNullOrWhiteSpace(Template.Assunto))
+            return "Informe o assunto para publicar.";
+
+        if (string.IsNullOrWhiteSpace(Template.Destinatarios))
+            return "Informe ao menos um destinatário para publicar.";
+
+        if (string.IsNullOrWhiteSpace(Template.Corpo))
+            return "O corpo do e-mail está vazio.";
+
+        return null;
+    }
+
+    /// <summary>Gera o .eml do e-mail já resolvido e o entrega conforme os destinos configurados.</summary>
+    private async Task GerarEml()
+    {
+        if (DadosExemplo is null)
+            return;
+
+        _ocupado = true;
+        _mensagem = null;
+        StateHasChanged();
+
+        OpcoesRascunho opcoes = new() { Destino = DestinosDoRascunho };
+        ResultadoRascunho resultado = await ServicoEmail.GerarRascunhoTemplateAsync(Template, DadosExemplo, opcoes);
+
+        if (resultado.Sucesso && resultado.Conteudo is not null && _modulo is not null)
+            await _modulo.InvokeVoidAsync(
+                "baixarArquivo",
+                resultado.NomeArquivo ?? "rascunho.eml",
+                Convert.ToBase64String(resultado.Conteudo));
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+        _ocupado = false;
+    }
+
+    /// <summary>Envia um teste. Permite rascunho de propósito: testar antes de publicar é o objetivo.</summary>
+    private async Task EnviarTeste()
+    {
+        if (DadosExemplo is null)
+            return;
+
+        _ocupado = true;
+        _mensagem = null;
+        StateHasChanged();
+
+        ResultadoEnvio resultado = await ServicoEmail.EnviarTemplateAsync(Template, DadosExemplo, permitirRascunho: true);
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+        _ocupado = false;
+
+        await OnEnviado.InvokeAsync(resultado);
+    }
+
+    /// <summary>Autentica no servidor e desconecta, sem enviar nada — confere a configuração.</summary>
+    private async Task TestarConexao()
+    {
+        _ocupado = true;
+        _mensagem = null;
+        StateHasChanged();
+
+        ResultadoEnvio resultado = await ServicoEmail.TestarConexaoAsync();
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+        _ocupado = false;
+    }
+
+    /// <summary>Libera o debounce e o módulo JS ao destruir o componente.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        _ctsEndereco?.Cancel();
+        _ctsEndereco?.Dispose();
+
+        if (_modulo is not null)
+        {
+            try
+            {
+                await _modulo.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuito já encerrado; nada a fazer.
+            }
+        }
+    }
+}

@@ -1,0 +1,270 @@
+@*
+    Página de teste do importador de animes. Consome a RCL BBiCore e exercita
+    todos os controles (modo, disparo, âncoras de início, brancos, divisor).
+    Harness de demonstração — não faz parte da biblioteca.
+*@
+@page "/"
+@rendermode InteractiveServer
+@inject IWebHostEnvironment Ambiente
+
+<PageTitle>BBiCore — importador de animes</PageTitle>
+
+<h1>BBiCore — importador de animes</h1>
+
+<p class="intro">
+    Página de consumo da RCL <strong>BBiCore</strong>. Sobe um CSV/Excel de animes
+    (<code>id, titulo, genero, nota_media, episodios, ano_lancamento, status</code>),
+    ou usa os exemplos embutidos. Ajuste os controles para exercitar os saltos de linha,
+    o tratamento de brancos e o disparo manual/automático.
+</p>
+
+<section class="cfg">
+    <label>
+        Modo
+        <select @bind="_modo">
+            <option value="@ModoImportacao.Completo">Completo</option>
+            <option value="@ModoImportacao.PararNaPrimeiraFalha">Parar na primeira falha</option>
+        </select>
+    </label>
+
+    <label>
+        Disparo
+        <select @bind="_disparo">
+            <option value="@ModoDisparo.Automatico">Automático</option>
+            <option value="@ModoDisparo.Manual">Manual</option>
+        </select>
+    </label>
+
+    <label>
+        Linhas em branco
+        <select @bind="_brancos">
+            <option value="@TratamentoLinhasEmBranco.Todas">Todas</option>
+            <option value="@TratamentoLinhasEmBranco.SomenteIniciais">Somente iniciais</option>
+            <option value="@TratamentoLinhasEmBranco.Nao">Não pular</option>
+        </select>
+    </label>
+
+    <label>
+        Linha do cabeçalho
+        <input type="number" min="1" placeholder="auto" @bind="_linhaCabecalho" />
+    </label>
+
+    <label>
+        Linha início dados
+        <input type="number" min="1" placeholder="após cab." @bind="_linhaInicioDados" />
+    </label>
+
+    <label>
+        Coluna início
+        <input type="number" min="1" @bind="_colunaInicio" />
+    </label>
+
+    <label>
+        Divisor (MB)
+        <input type="number" min="0" @bind="_divisorMb" />
+    </label>
+
+    <label class="cfg__pasta">
+        Pasta de depósito (grandes)
+        <input type="text" @bind="_pastaDestino" />
+    </label>
+</section>
+
+<section class="acao">
+    <BBiImportadorArquivo @ref="_importador"
+                          TEntidade="Anime"
+                          Mapa="_mapa"
+                          Leitores="_leitores"
+                          Opcoes="Opcoes"
+                          Disparo="_disparo"
+                          TamanhoDivisorMb="_divisorMb"
+                          CaminhoDestino="_pastaDestino"
+                          OnImportado="Receber"
+                          OnDepositado="Depositado"
+                          Rotulo="Selecionar CSV / Excel" />
+
+    @if (_disparo == ModoDisparo.Manual)
+    {
+        <button class="btn btn--ghost" @onclick="DispararExterno">Importar (externo via @@ref)</button>
+    }
+
+    <button class="btn" @onclick="() => RodarExemplo(sujo: false)">Exemplo limpo</button>
+    <button class="btn btn--warn" @onclick="() => RodarExemplo(sujo: true)">Exemplo sujo</button>
+</section>
+
+@if (_depositados.Count > 0)
+{
+    <section class="bloco">
+        <h2>Depositados (caminho assíncrono)</h2>
+        <ul>
+            @foreach (ArquivoDepositado d in _depositados)
+            {
+                <li><strong>@d.NomeOriginal</strong> (@FormatarTamanho(d.Tamanho)) → <code>@d.CaminhoFinal</code></li>
+            }
+        </ul>
+    </section>
+}
+
+@if (_resultado is not null)
+{
+    <section class="bloco">
+        <h2>Resultado</h2>
+        <p class="resumo">
+            <span class="chip chip--total">@_resultado.Total linhas</span>
+            <span class="chip chip--ok">@_resultado.TotalOk ok</span>
+            <span class="chip chip--falha">@_resultado.TotalFalha com falha</span>
+        </p>
+
+        @if (_resultado.Itens.Count > 0)
+        {
+            <h3>Animes importados (@_resultado.Itens.Count)</h3>
+            <table>
+                <thead>
+                    <tr><th>Id</th><th>Título</th><th>Gênero</th><th>Nota</th><th>Eps.</th><th>Ano</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (Anime a in _resultado.Itens)
+                    {
+                        <tr>
+                            <td>@a.Id</td>
+                            <td>@a.Titulo</td>
+                            <td>@a.Genero</td>
+                            <td>@a.NotaMedia.ToString("0.00", Cultura)</td>
+                            <td>@a.Episodios</td>
+                            <td>@a.AnoLancamento</td>
+                            <td>@a.Status</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @{
+            var linhasComFalha = _resultado.Relatorio.Where(l => !l.Ok).ToList();
+        }
+        @if (linhasComFalha.Count > 0)
+        {
+            <h3>Falhas (@linhasComFalha.Count)</h3>
+            <table class="falhas">
+                <thead>
+                    <tr><th>Arquivo</th><th>Linha</th><th>Origem</th><th>Destino</th><th>Valor bruto</th><th>Mensagem</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (LinhaResultado<Anime> l in linhasComFalha)
+                    {
+                        @foreach (FalhaImportacao f in l.Falhas)
+                        {
+                            <tr>
+                                <td>@l.Arquivo</td>
+                                <td>@l.Linha</td>
+                                <td>@f.Origem</td>
+                                <td>@f.Destino</td>
+                                <td><code>@f.ValorBruto</code></td>
+                                <td>@f.Mensagem</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        }
+    </section>
+}
+
+@code {
+    /// <summary>Comportamento diante de falhas.</summary>
+    private ModoImportacao _modo = ModoImportacao.Completo;
+
+    /// <summary>Momento do disparo da importação (automático ou manual).</summary>
+    private ModoDisparo _disparo = ModoDisparo.Automatico;
+
+    /// <summary>Tratamento de linhas em branco na região de dados.</summary>
+    private TratamentoLinhasEmBranco _brancos = TratamentoLinhasEmBranco.Todas;
+
+    /// <summary>Âncora da linha do cabeçalho (nulo = autodetecta).</summary>
+    private int? _linhaCabecalho;
+
+    /// <summary>Âncora da linha de início dos dados (nulo = logo após o cabeçalho).</summary>
+    private int? _linhaInicioDados;
+
+    /// <summary>Coluna inicial da tabela (1-based).</summary>
+    private int _colunaInicio = 1;
+
+    /// <summary>Tamanho (MB) que separa processamento imediato de depósito.</summary>
+    private int? _divisorMb = 50;
+
+    /// <summary>Pasta de destino para arquivos grandes.</summary>
+    private string _pastaDestino = Path.Combine(Path.GetTempPath(), "bbi-importador", "deposito");
+
+    /// <summary>Referência ao componente, para disparo externo via ImportarAsync().</summary>
+    private BBiImportadorArquivo<Anime>? _importador;
+
+    /// <summary>Último resultado obtido.</summary>
+    private ResultadoImportacao<Anime>? _resultado;
+
+    /// <summary>Arquivos grandes depositados na sessão.</summary>
+    private readonly List<ArquivoDepositado> _depositados = [];
+
+    /// <summary>Cultura pt-BR usada para formatação na tela.</summary>
+    private static readonly CultureInfo Cultura = CultureInfo.GetCultureInfo("pt-BR");
+
+    /// <summary>Leitores suportados (CSV e Excel).</summary>
+    private readonly IReadOnlyList<ILeitorTabular> _leitores = [new LeitorCsv(), new LeitorExcel()];
+
+    /// <summary>Mapa de animes reutilizado nas importações.</summary>
+    private readonly MapaImportacao<Anime> _mapa = MapaAnimes.Padrao();
+
+    /// <summary>Monta as opções a partir dos controles da tela.</summary>
+    private OpcoesImportacao Opcoes => new()
+    {
+        Modo = _modo,
+        CulturaGlobal = Cultura,
+        LinhaCabecalho = _linhaCabecalho,
+        LinhaInicioDados = _linhaInicioDados,
+        ColunaInicio = _colunaInicio,
+        LinhasEmBranco = _brancos
+    };
+
+    /// <summary>Recebe o resultado emitido pelo componente e atualiza a tela.</summary>
+    /// <param name="r">Resultado da importação.</param>
+    private void Receber(ResultadoImportacao<Anime> r)
+    {
+        _resultado = r;
+        StateHasChanged();
+    }
+
+    /// <summary>Registra um arquivo grande depositado.</summary>
+    /// <param name="a">Metadados do depósito.</param>
+    private void Depositado(ArquivoDepositado a)
+    {
+        _depositados.Add(a);
+        StateHasChanged();
+    }
+
+    /// <summary>Dispara a importação pelo botão externo (demonstra ImportarAsync via @@ref).</summary>
+    private async Task DispararExterno()
+    {
+        if (_importador is not null)
+            await _importador.ImportarAsync();
+    }
+
+    /// <summary>Roda o motor direto sobre um CSV embutido, provando o núcleo sem o componente.</summary>
+    /// <param name="sujo">Se verdadeiro, usa o arquivo com erros propositais.</param>
+    private void RodarExemplo(bool sujo)
+    {
+        string nome = sujo ? "catalogo_animes_sujo.csv" : "catalogo_animes.csv";
+        string caminho = Path.Combine(Ambiente.WebRootPath, "exemplos", nome);
+
+        _depositados.Clear();
+
+        using FileStream fs = File.OpenRead(caminho);
+        _resultado = ImportadorTabular.Importar(fs, nome, _mapa, new LeitorCsv(), Opcoes);
+    }
+
+    /// <summary>Formata um tamanho em bytes como KB ou MB.</summary>
+    /// <param name="bytes">Tamanho em bytes.</param>
+    /// <returns>Texto formatado.</returns>
+    private static string FormatarTamanho(long bytes)
+        => bytes < 1024 * 1024
+            ? $"{bytes / 1024.0:0.#} KB"
+            : $"{bytes / (1024.0 * 1024.0):0.#} MB";
+}

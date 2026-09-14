@@ -1,0 +1,185 @@
+﻿@typeparam T
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@using System.Linq.Expressions
+@using System.Reflection
+
+<div @ref="_elemento" class="bbi-lista-ordenavel" data-bbi-lista="@IdLista">
+    @if (Itens is not null)
+    {
+        @foreach (var item in Itens)
+        {
+            var chave = ObterChaveTexto(item);
+            <div class="bbi-lista-ordenavel-item" data-bbi-chave="@chave" @key="chave">
+                <span class="bbi-lista-ordenavel-alca" aria-hidden="true">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <div class="bbi-lista-ordenavel-conteudo">
+                    @TemplateItem(item)
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private ElementReference _elemento;
+    private IJSObjectReference? _modulo;
+    private IJSObjectReference? _instancia;
+    private DotNetObjectReference<BBIListaOrdenavel<T>>? _referencia;
+
+    /// <summary>Coleção a ser reordenada. Deve ser mutável (ex.: List&lt;T&gt;).</summary>
+    [Parameter, EditorRequired] public IList<T> Itens { get; set; } = default!;
+
+    /// <summary>Chave estável de cada item (usada para casar DOM e C#).</summary>
+    [Parameter, EditorRequired] public Func<T, object> ChaveItem { get; set; } = default!;
+
+    /// <summary>Template visual de cada item (conteúdo do consumidor).</summary>
+    [Parameter, EditorRequired] public RenderFragment<T> TemplateItem { get; set; } = default!;
+
+    /// <summary>Propriedade de posição. Se informada, é atualizada após reordenar.</summary>
+    [Parameter] public Expression<Func<T, int>>? SeletorPosicao { get; set; }
+
+    /// <summary>Valor inicial da numeração de posição (padrão 1).</summary>
+    [Parameter] public int PosicaoInicial { get; set; } = 1;
+
+    /// <summary>Dispara ao soltar o item, entregando a coleção reordenada.</summary>
+    [Parameter] public EventCallback<IReadOnlyList<T>> AoReordenar { get; set; }
+
+    [Parameter] public bool Desabilitado { get; set; }
+
+    private string IdLista { get; } = $"bbi-lista-{Guid.NewGuid():N}";
+
+    protected override async Task OnAfterRenderAsync(bool primeiraRenderizacao)
+    {
+        if (primeiraRenderizacao)
+        {
+            _referencia = DotNetObjectReference.Create(this);
+            _modulo = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./_content/BBICore/js/bbiListaOrdenavel.js");
+            _instancia = await _modulo.InvokeAsync<IJSObjectReference>(
+                "iniciar", _elemento, _referencia, new { desabilitado = Desabilitado });
+        }
+    }
+
+    private string ObterChaveTexto(T item)
+    {
+        var chave = ChaveItem(item);
+        return chave?.ToString() ?? string.Empty;
+    }
+
+    /// <summary>Invocado pelo JS quando o item é solto. Recebe a nova ordem de chaves.</summary>
+    [JSInvokable]
+    public async Task OnReordenado(ReordenacaoDto dto)
+    {
+        // Mapeia chave -> item para reconstruir a lista na ordem do DOM.
+        var mapa = new Dictionary<string, T>();
+        foreach (var item in Itens)
+        {
+            var chave = ObterChaveTexto(item);
+            if (!mapa.ContainsKey(chave))
+            {
+                mapa[chave] = item;
+            }
+        }
+
+        var novaLista = new List<T>(Itens.Count);
+        foreach (var chave in dto.NovaOrdemChaves)
+        {
+            if (mapa.TryGetValue(chave, out var item))
+            {
+                novaLista.Add(item);
+            }
+        }
+
+        // Segurança: se algo não casou, preserva no fim (evita perda de item).
+        if (novaLista.Count != Itens.Count)
+        {
+            foreach (var item in Itens)
+            {
+                if (!novaLista.Contains(item))
+                {
+                    novaLista.Add(item);
+                }
+            }
+        }
+
+        // Atualiza a propriedade de posição, se um seletor foi fornecido.
+        if (SeletorPosicao is not null)
+        {
+            AtualizarPosicoes(novaLista);
+        }
+
+        // Reordena a própria coleção (mantém a ordem do C# igual ao DOM).
+        Itens.Clear();
+        foreach (var item in novaLista)
+        {
+            Itens.Add(item);
+        }
+
+        await AoReordenar.InvokeAsync(novaLista.AsReadOnly());
+        StateHasChanged();
+    }
+
+    private void AtualizarPosicoes(List<T> lista)
+    {
+        var propriedade = ObterPropriedadePosicao();
+        if (propriedade is null)
+        {
+            return;
+        }
+
+        var posicao = PosicaoInicial;
+        foreach (var item in lista)
+        {
+            propriedade.SetValue(item, posicao);
+            posicao++;
+        }
+    }
+
+    private PropertyInfo? ObterPropriedadePosicao()
+    {
+        if (SeletorPosicao is null)
+        {
+            return null;
+        }
+
+        var corpo = SeletorPosicao.Body;
+
+        // Desembrulha conversões implícitas (ex.: cast para object).
+        if (corpo is UnaryExpression unaria)
+        {
+            corpo = unaria.Operand;
+        }
+
+        if (corpo is MemberExpression membro && membro.Member is PropertyInfo propriedade)
+        {
+            return propriedade;
+        }
+
+        return null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_instancia is not null)
+            {
+                await _instancia.InvokeVoidAsync("destruir");
+                await _instancia.DisposeAsync();
+            }
+
+            if (_modulo is not null)
+            {
+                await _modulo.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuito já encerrado; nada a fazer.
+        }
+
+        _referencia?.Dispose();
+    }
+}

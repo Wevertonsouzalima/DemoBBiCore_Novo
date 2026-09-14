@@ -1,0 +1,25 @@
+/* Estilos isolados do campo com marcadores. */
+.bbi-tpl { display: flex; flex-direction: column; gap: 5px; position: relative; }
+.bbi-tpl__rotulo { font-size: 0.8rem; color: #94a3b8; }
+.bbi-tpl__input, .bbi-tpl__area {
+    width: 100%; box-sizing: border-box;
+    padding: 9px 11px; border: 1px solid #334155; border-radius: 6px;
+    background: #020617; color: #e2e8f0; font-size: 0.9rem; font-family: inherit;
+}
+.bbi-tpl__area { min-height: 220px; resize: vertical; line-height: 1.5; }
+.bbi-tpl__falhas { padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; background: #4c0519; color: #fecdd3; border: 1px solid #7f1d1d; }
+.bbi-tpl__backdrop { position: fixed; inset: 0; z-index: 40; }
+.bbi-tpl__menu {
+    position: fixed; z-index: 50; min-width: 240px; max-height: 340px; overflow-y: auto;
+    background: #0b1225; border: 1px solid #334155; border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); padding: 6px;
+}
+.bbi-tpl__busca {
+    width: 100%; box-sizing: border-box; margin-bottom: 6px;
+    padding: 7px 9px; border: 1px solid #334155; border-radius: 6px;
+    background: #020617; color: #e2e8f0; font-size: 0.85rem;
+}
+.bbi-tpl__menu-grupo { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; padding: 8px 8px 2px; }
+.bbi-tpl__menu-item { display: block; width: 100%; text-align: left; padding: 6px 8px; border: none; border-radius: 4px; background: transparent; color: #cbd5e1; cursor: pointer; font-size: 0.85rem; }
+.bbi-tpl__menu-item:hover { background: #1d4ed8; color: #fff; }
+.bbi-tpl__menu-vazio { padding: 8px; color: #64748b; font-size: 0.85rem; }

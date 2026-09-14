@@ -1,0 +1,930 @@
+@*
+    =========================================================================
+     BBISeletorData.razor  —  Seletor de data/hora/período com calendário próprio
+    -------------------------------------------------------------------------
+     Sem picker nativo — tudo desenhado à mão:
+       - Modos: Data, DataHora e Periodo (parâmetro Modo).
+       - Drill-down: dias → meses → anos, clicando no título do cabeçalho.
+       - Desktop: popover ancorado, com meses vizinhos em colunas verticais
+         laterais (a navegação de mês É a coluna, não setas separadas).
+       - Celular: modal centralizado, com setas no cabeçalho + swipe na grade.
+       - Navegação de mês/ano/década roda inteiramente em C#; o JS colocado
+         (BBISeletorData.razor.js) só posiciona o popover, detecta celular,
+         captura o swipe e aplica a máscara de digitação.
+
+     Depende de ModoSeletorData.cs (mesma pasta) e do JS colocado
+     BBISeletorData.razor.js, servido em _content/BBiCore/SeletorData/BBISeletorData.razor.js.
+    =========================================================================
+*@
+@namespace BBiCore.Componentes
+@using System.Globalization
+@using BBiCore.SeletorData
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="bbi-seletor" @ref="_refCampo">
+
+    @if (!string.IsNullOrEmpty(Rotulo))
+    {
+        <label class="bbi-seletor__rotulo">@Rotulo</label>
+    }
+
+    <div class="bbi-seletor__campo @(_aberto ? "bbi-seletor__campo--ativo" : "") @(Desabilitado ? "bbi-seletor__campo--desabilitado" : "")">
+        @if (Modo == ModoSeletorData.Periodo || !PermitirDigitacao)
+        {
+            <span class="bbi-seletor__valor @(TemValor ? "" : "bbi-seletor__valor--vazio")"
+                  @onclick="AoClicarCampo">
+                @TextoExibicao()
+            </span>
+        }
+        else
+        {
+            <input type="text"
+                   class="bbi-seletor__input"
+                   @ref="_refInput"
+                   value="@_texto"
+                   placeholder="@PlaceholderEfetivo()"
+                   disabled="@Desabilitado"
+                   @onfocus="AoClicarCampo"
+                   @onchange="AoDigitar" />
+        }
+        <i class="bi bi-calendar3 bbi-seletor__icone" @onclick="AoClicarCampo"></i>
+    </div>
+</div>
+
+@{
+    RenderFragment painel =
+        @<div class="bbi-seletor__painel">
+
+            @* Cabeçalho: título (drill-down) + navegação no celular *@
+            <div class="bbi-seletor__cabecalho">
+                @if (_ehCelular && _nivel != NivelNavegacao.Anos)
+                {
+                    <button type="button" class="bbi-seletor__nav-seta"
+                            disabled="@(!PodeNavegarAnterior())"
+                            @onclick="NavegarAnterior" aria-label="Anterior">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                }
+
+                <button type="button" class="bbi-seletor__titulo @(_nivel == NivelNavegacao.Anos ? "bbi-seletor__titulo--fixo" : "")"
+                        disabled="@(_nivel == NivelNavegacao.Anos)"
+                        @onclick="SubirNivel">
+                    <span>@TituloCabecalho()</span>
+                    @if (_nivel != NivelNavegacao.Anos)
+                    {
+                        <i class="bi bi-chevron-down"></i>
+                    }
+                </button>
+
+                @if (_ehCelular)
+                {
+                    <button type="button" class="bbi-seletor__nav-seta"
+                            disabled="@(!PodeNavegarProximo())"
+                            @onclick="NavegarProximo" aria-label="Próximo">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                }
+            </div>
+
+            @* Corpo: colunas laterais (desktop) + grade *@
+            <div class="bbi-seletor__corpo @(_ehCelular ? "bbi-seletor__corpo--celular" : "")">
+
+                @if (!_ehCelular)
+                {
+                    <button type="button" class="bbi-seletor__lateral bbi-seletor__lateral--anterior"
+                            disabled="@(!PodeNavegarAnterior())"
+                            @onclick="NavegarAnterior" aria-label="Anterior">
+                        <i class="bi bi-chevron-left"></i>
+                        <span class="bbi-seletor__lateral-texto">@RotuloLateralAnterior()</span>
+                    </button>
+                }
+
+                <div class="bbi-seletor__grade-area" @ref="_refGrade">
+                    @if (_nivel == NivelNavegacao.Dias)
+                    {
+                        <div class="bbi-seletor__semana">
+                            @foreach (string d in RotulosDiasSemana())
+                            {
+                                <span class="bbi-seletor__dow">@d</span>
+                            }
+                        </div>
+                        <div class="bbi-seletor__grade">
+                            @foreach (DateTime dia in DiasVisiveis())
+                            {
+                                <div class="bbi-seletor__celula-dia @ClasseDia(dia)">
+                                    <button type="button" class="bbi-seletor__dia"
+                                            disabled="@ForaDoLimite(dia)"
+                                            @onclick="() => SelecionarDia(dia)">
+                                        @dia.Day
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_nivel == NivelNavegacao.Meses)
+                    {
+                        <div class="bbi-seletor__grade-mes">
+                            @for (int m = 1; m <= 12; m++)
+                            {
+                                int mes = m;
+                                <button type="button" class="bbi-seletor__opcao @ClasseMes(mes)"
+                                        disabled="@MesForaDoLimite(mes)"
+                                        @onclick="() => SelecionarMes(mes)">
+                                    @NomeMesAbrev(mes)
+                                </button>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="bbi-seletor__grade-mes">
+                            @for (int i = 0; i < 12; i++)
+                            {
+                                int ano = _anoBaseDecada + i;
+                                <button type="button" class="bbi-seletor__opcao @ClasseAno(ano)"
+                                        disabled="@AnoForaDoLimite(ano)"
+                                        @onclick="() => SelecionarAno(ano)">
+                                    @ano
+                                </button>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (!_ehCelular)
+                {
+                    <button type="button" class="bbi-seletor__lateral bbi-seletor__lateral--proximo"
+                            disabled="@(!PodeNavegarProximo())"
+                            @onclick="NavegarProximo" aria-label="Próximo">
+                        <i class="bi bi-chevron-right"></i>
+                        <span class="bbi-seletor__lateral-texto">@RotuloLateralProximo()</span>
+                    </button>
+                }
+            </div>
+
+            @* Campos De/Até no modo período *@
+            @if (Modo == ModoSeletorData.Periodo && _nivel == NivelNavegacao.Dias)
+            {
+                <div class="bbi-seletor__periodo">
+                    <div class="bbi-seletor__periodo-campo">
+                        <label>De</label>
+                        <span class="@(_periodoInicio.HasValue ? "" : "bbi-seletor__valor--vazio")">
+                            @(_periodoInicio?.ToString("dd/MM/yyyy") ?? "--/--/----")
+                        </span>
+                    </div>
+                    <div class="bbi-seletor__periodo-campo">
+                        <label>Até</label>
+                        <span class="@(_periodoFim.HasValue ? "" : "bbi-seletor__valor--vazio")">
+                            @(_periodoFim?.ToString("dd/MM/yyyy") ?? "--/--/----")
+                        </span>
+                    </div>
+                </div>
+            }
+
+            @* Campos de hora no modo data e hora *@
+            @if (Modo == ModoSeletorData.DataHora && _nivel == NivelNavegacao.Dias)
+            {
+                <div class="bbi-seletor__hora">
+                    <i class="bi bi-clock"></i>
+                    <input type="number" min="0" max="23" class="bbi-seletor__hora-campo"
+                           value="@_hora" @onchange="AoMudarHora" aria-label="Hora" />
+                    <span>:</span>
+                    <input type="number" min="0" max="59" class="bbi-seletor__hora-campo"
+                           value="@_minuto" @onchange="AoMudarMinuto" aria-label="Minuto" />
+                </div>
+            }
+
+            @if (_ehCelular)
+            {
+                <div class="bbi-seletor__dica">
+                    <i class="bi bi-arrow-left-right"></i>
+                    <span>deslize para trocar o mês</span>
+                </div>
+            }
+
+            @* Rodapé: botão Hoje e ações *@
+            <div class="bbi-seletor__rodape">
+                @if (MostrarBotaoHoje)
+                {
+                    <button type="button" class="bbi-seletor__hoje" @onclick="IrParaHoje">
+                        <i class="bi bi-calendar-event"></i> Hoje
+                    </button>
+                }
+                <div class="bbi-seletor__espaco"></div>
+                @if (PrecisaConfirmacao)
+                {
+                    <button type="button" class="bbi-seletor__cancelar" @onclick="Cancelar">Cancelar</button>
+                    <button type="button" class="bbi-seletor__confirmar"
+                            disabled="@(!PodeConfirmar())" @onclick="Confirmar">Confirmar</button>
+                }
+            </div>
+        </div>;
+}
+
+@if (_aberto && _ehCelular)
+{
+    <div class="bbi-seletor__backdrop" @onclick="Cancelar">
+        <div class="bbi-seletor__modal" @ref="_refPainel" @onclick:stopPropagation="true">
+            @painel
+        </div>
+    </div>
+}
+else if (_aberto)
+{
+    <div class="bbi-seletor__popover" @ref="_refPainel">
+        @painel
+    </div>
+}
+
+@code {
+    private static readonly CultureInfo Cultura = CultureInfo.GetCultureInfo("pt-BR");
+
+    // ----- Parâmetros -----
+
+    /// <summary>Define o que o componente seleciona. Padrão: <see cref="ModoSeletorData.Data"/>.</summary>
+    [Parameter] public ModoSeletorData Modo { get; set; } = ModoSeletorData.Data;
+
+    /// <summary>Valor nos modos <see cref="ModoSeletorData.Data"/> e <see cref="ModoSeletorData.DataHora"/>.</summary>
+    [Parameter] public DateTime? Valor { get; set; }
+
+    /// <summary>Disparado quando <see cref="Valor"/> muda (binding com <c>@bind-Valor</c>).</summary>
+    [Parameter] public EventCallback<DateTime?> ValorChanged { get; set; }
+
+    /// <summary>Início do intervalo no modo <see cref="ModoSeletorData.Periodo"/>.</summary>
+    [Parameter] public DateTime? ValorInicio { get; set; }
+
+    /// <summary>Disparado quando <see cref="ValorInicio"/> muda.</summary>
+    [Parameter] public EventCallback<DateTime?> ValorInicioChanged { get; set; }
+
+    /// <summary>Fim do intervalo no modo <see cref="ModoSeletorData.Periodo"/>.</summary>
+    [Parameter] public DateTime? ValorFim { get; set; }
+
+    /// <summary>Disparado quando <see cref="ValorFim"/> muda.</summary>
+    [Parameter] public EventCallback<DateTime?> ValorFimChanged { get; set; }
+
+    /// <summary>Texto do rótulo acima do campo.</summary>
+    [Parameter] public string? Rotulo { get; set; }
+
+    /// <summary>Placeholder do campo. Se vazio, usa um padrão conforme o modo.</summary>
+    [Parameter] public string? Placeholder { get; set; }
+
+    /// <summary>Menor data selecionável. Limita também a navegação.</summary>
+    [Parameter] public DateTime? DataMinima { get; set; }
+
+    /// <summary>Maior data selecionável. Limita também a navegação.</summary>
+    [Parameter] public DateTime? DataMaxima { get; set; }
+
+    /// <summary>Permite digitar a data no campo (com máscara). Padrão: <c>true</c>. Ignorado no modo período.</summary>
+    [Parameter] public bool PermitirDigitacao { get; set; } = true;
+
+    /// <summary>Exibe o botão "Hoje" no rodapé. Padrão: <c>true</c>.</summary>
+    [Parameter] public bool MostrarBotaoHoje { get; set; } = true;
+
+    /// <summary>Primeiro dia da semana na grade. Padrão: domingo (padrão brasileiro).</summary>
+    [Parameter] public DayOfWeek PrimeiroDiaSemana { get; set; } = DayOfWeek.Sunday;
+
+    /// <summary>Largura (px) abaixo da qual o seletor abre como modal em vez de popover. Padrão: 768.</summary>
+    [Parameter] public int LarguraQuebraCelular { get; set; } = 768;
+
+    /// <summary>Desabilita o componente.</summary>
+    [Parameter] public bool Desabilitado { get; set; }
+
+    // ----- Estado interno -----
+
+    private ElementReference _refCampo;
+    private ElementReference _refPainel;
+    private ElementReference _refGrade;
+    private ElementReference _refInput;
+
+    private IJSObjectReference? _modulo;
+    private DotNetObjectReference<BBISeletorData>? _referencia;
+
+    private bool _aberto;
+    private bool _ehCelular;
+    private bool _painelIniciado;
+    private bool _mascaraAplicada;
+
+    private NivelNavegacao _nivel = NivelNavegacao.Dias;
+    private DateTime _mesReferencia = DateTime.Today;
+    private int _anoBaseDecada;
+
+    private DateTime? _dataSelecionada;
+    private int _hora;
+    private int _minuto;
+
+    private DateTime? _periodoInicio;
+    private DateTime? _periodoFim;
+
+    private string _texto = string.Empty;
+
+    private bool TemValor =>
+        Modo == ModoSeletorData.Periodo ? (ValorInicio.HasValue || ValorFim.HasValue) : Valor.HasValue;
+
+    private bool PrecisaConfirmacao =>
+        Modo != ModoSeletorData.Data || _ehCelular;
+
+    // ----- Ciclo de vida -----
+
+    protected override void OnInitialized()
+    {
+        _referencia = DotNetObjectReference.Create(this);
+    }
+
+    protected override void OnParametersSet()
+    {
+        _texto = TextoExibicao();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool primeiroRender)
+    {
+        _modulo ??= await JS.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/BBiCore/SeletorData/BBISeletorData.razor.js");
+
+        if (PermitirDigitacao && Modo != ModoSeletorData.Periodo && !_mascaraAplicada)
+        {
+            _mascaraAplicada = true;
+            string padrao = Modo == ModoSeletorData.DataHora ? "datahora" : "data";
+            await _modulo.InvokeVoidAsync("mascara", _refInput, padrao);
+        }
+
+        if (_aberto && !_painelIniciado)
+        {
+            _painelIniciado = true;
+            if (_ehCelular)
+            {
+                await _modulo.InvokeVoidAsync("registrarSwipe", _refGrade, _referencia);
+            }
+            else
+            {
+                await _modulo.InvokeVoidAsync("abrirPopover", _refCampo, _refPainel, _referencia);
+            }
+        }
+    }
+
+    // ----- Abertura e fechamento -----
+
+    private async Task AoClicarCampo()
+    {
+        if (Desabilitado || _aberto)
+        {
+            return;
+        }
+
+        _ehCelular = _modulo is not null
+            && await _modulo.InvokeAsync<bool>("ehCelular", LarguraQuebraCelular);
+
+        PrepararEstadoInicial();
+        _aberto = true;
+        _painelIniciado = false;
+    }
+
+    private void PrepararEstadoInicial()
+    {
+        _nivel = NivelNavegacao.Dias;
+
+        if (Modo == ModoSeletorData.Periodo)
+        {
+            _periodoInicio = ValorInicio;
+            _periodoFim = ValorFim;
+            _mesReferencia = ValorInicio ?? DateTime.Today;
+        }
+        else
+        {
+            _dataSelecionada = Valor;
+            _hora = Valor?.Hour ?? 0;
+            _minuto = Valor?.Minute ?? 0;
+            _mesReferencia = Valor ?? DateTime.Today;
+        }
+
+        _anoBaseDecada = _mesReferencia.Year - (_mesReferencia.Year % 10);
+    }
+
+    private async Task Fechar()
+    {
+        _aberto = false;
+        _painelIniciado = false;
+        if (_modulo is not null && !_ehCelular)
+        {
+            await _modulo.InvokeVoidAsync("fecharPopover");
+        }
+        _texto = TextoExibicao();
+        StateHasChanged();
+    }
+
+    private Task Cancelar() => Fechar();
+
+    /// <summary>Chamado pelo JavaScript ao clicar fora do popover (desktop).</summary>
+    [JSInvokable]
+    public async Task FecharPorClique()
+    {
+        if (_aberto && !_ehCelular)
+        {
+            await Fechar();
+        }
+    }
+
+    /// <summary>Chamado pelo JavaScript ao concluir um swipe (celular). -1 volta, +1 avança.</summary>
+    [JSInvokable]
+    public async Task NavegarPorSwipe(int direcao)
+    {
+        if (direcao < 0)
+        {
+            await NavegarAnterior();
+        }
+        else
+        {
+            await NavegarProximo();
+        }
+        StateHasChanged();
+    }
+
+    // ----- Navegação (drill-down e meses/anos) -----
+
+    private void SubirNivel()
+    {
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                _nivel = NivelNavegacao.Meses;
+                break;
+            case NivelNavegacao.Meses:
+                _anoBaseDecada = _mesReferencia.Year - (_mesReferencia.Year % 10);
+                _nivel = NivelNavegacao.Anos;
+                break;
+            case NivelNavegacao.Anos:
+                break;
+        }
+    }
+
+    private Task NavegarAnterior()
+    {
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                _mesReferencia = _mesReferencia.AddMonths(-1);
+                break;
+            case NivelNavegacao.Meses:
+                _mesReferencia = _mesReferencia.AddYears(-1);
+                break;
+            case NivelNavegacao.Anos:
+                _anoBaseDecada -= 10;
+                break;
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task NavegarProximo()
+    {
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                _mesReferencia = _mesReferencia.AddMonths(1);
+                break;
+            case NivelNavegacao.Meses:
+                _mesReferencia = _mesReferencia.AddYears(1);
+                break;
+            case NivelNavegacao.Anos:
+                _anoBaseDecada += 10;
+                break;
+        }
+        return Task.CompletedTask;
+    }
+
+    private bool PodeNavegarAnterior()
+    {
+        if (!DataMinima.HasValue)
+        {
+            return true;
+        }
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                return new DateTime(_mesReferencia.Year, _mesReferencia.Month, 1) > DataMinima.Value.Date;
+            case NivelNavegacao.Meses:
+                return _mesReferencia.Year > DataMinima.Value.Year;
+            case NivelNavegacao.Anos:
+                return _anoBaseDecada > DataMinima.Value.Year;
+            default:
+                return true;
+        }
+    }
+
+    private bool PodeNavegarProximo()
+    {
+        if (!DataMaxima.HasValue)
+        {
+            return true;
+        }
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                return _mesReferencia.AddMonths(1) <= new DateTime(DataMaxima.Value.Year, DataMaxima.Value.Month, 1);
+            case NivelNavegacao.Meses:
+                return _mesReferencia.Year < DataMaxima.Value.Year;
+            case NivelNavegacao.Anos:
+                return _anoBaseDecada + 9 < DataMaxima.Value.Year;
+            default:
+                return true;
+        }
+    }
+
+    // ----- Seleção -----
+
+    private async Task SelecionarDia(DateTime dia)
+    {
+        if (ForaDoLimite(dia))
+        {
+            return;
+        }
+
+        if (Modo == ModoSeletorData.Periodo)
+        {
+            if (_periodoInicio is null || _periodoFim is not null)
+            {
+                _periodoInicio = dia;
+                _periodoFim = null;
+            }
+            else if (dia < _periodoInicio)
+            {
+                _periodoFim = _periodoInicio;
+                _periodoInicio = dia;
+            }
+            else
+            {
+                _periodoFim = dia;
+            }
+            return;
+        }
+
+        _dataSelecionada = dia;
+
+        if (!PrecisaConfirmacao)
+        {
+            await AplicarValorSimples();
+            await Fechar();
+        }
+    }
+
+    private void SelecionarMes(int mes)
+    {
+        _mesReferencia = new DateTime(_mesReferencia.Year, mes, 1);
+        _nivel = NivelNavegacao.Dias;
+    }
+
+    private void SelecionarAno(int ano)
+    {
+        _mesReferencia = new DateTime(ano, _mesReferencia.Month, 1);
+        _nivel = NivelNavegacao.Meses;
+    }
+
+    private void AoMudarHora(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int h))
+        {
+            _hora = Math.Clamp(h, 0, 23);
+        }
+    }
+
+    private void AoMudarMinuto(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out int m))
+        {
+            _minuto = Math.Clamp(m, 0, 59);
+        }
+    }
+
+    private async Task IrParaHoje()
+    {
+        _mesReferencia = DateTime.Today;
+        _anoBaseDecada = _mesReferencia.Year - (_mesReferencia.Year % 10);
+        _nivel = NivelNavegacao.Dias;
+
+        if (Modo != ModoSeletorData.Periodo)
+        {
+            _dataSelecionada = DateTime.Today;
+            if (!PrecisaConfirmacao)
+            {
+                await AplicarValorSimples();
+                await Fechar();
+            }
+        }
+    }
+
+    private async Task Confirmar()
+    {
+        if (Modo == ModoSeletorData.Periodo)
+        {
+            ValorInicio = _periodoInicio;
+            ValorFim = _periodoFim;
+            await ValorInicioChanged.InvokeAsync(ValorInicio);
+            await ValorFimChanged.InvokeAsync(ValorFim);
+        }
+        else
+        {
+            await AplicarValorSimples();
+        }
+        await Fechar();
+    }
+
+    private async Task AplicarValorSimples()
+    {
+        if (_dataSelecionada is null)
+        {
+            Valor = null;
+        }
+        else if (Modo == ModoSeletorData.DataHora)
+        {
+            DateTime d = _dataSelecionada.Value.Date;
+            Valor = d.AddHours(_hora).AddMinutes(_minuto);
+        }
+        else
+        {
+            Valor = _dataSelecionada.Value.Date;
+        }
+        await ValorChanged.InvokeAsync(Valor);
+    }
+
+    private bool PodeConfirmar()
+    {
+        if (Modo == ModoSeletorData.Periodo)
+        {
+            return _periodoInicio.HasValue && _periodoFim.HasValue;
+        }
+        return _dataSelecionada.HasValue;
+    }
+
+    // ----- Digitação -----
+
+    private async Task AoDigitar(ChangeEventArgs e)
+    {
+        string entrada = e.Value?.ToString()?.Trim() ?? string.Empty;
+        _texto = entrada;
+
+        if (string.IsNullOrEmpty(entrada))
+        {
+            Valor = null;
+            await ValorChanged.InvokeAsync(Valor);
+            return;
+        }
+
+        string[] formatos = Modo == ModoSeletorData.DataHora
+            ? new[] { "dd/MM/yyyy HH:mm", "dd/MM/yyyy" }
+            : new[] { "dd/MM/yyyy" };
+
+        if (DateTime.TryParseExact(entrada, formatos, Cultura, DateTimeStyles.None, out DateTime resultado)
+            && !ForaDoLimite(resultado))
+        {
+            Valor = resultado;
+            _dataSelecionada = resultado;
+            _hora = resultado.Hour;
+            _minuto = resultado.Minute;
+            _mesReferencia = resultado;
+            await ValorChanged.InvokeAsync(Valor);
+        }
+    }
+
+    // ----- Grade e limites -----
+
+    private IEnumerable<DateTime> DiasVisiveis()
+    {
+        DateTime primeiro = new DateTime(_mesReferencia.Year, _mesReferencia.Month, 1);
+        int recuo = ((int)primeiro.DayOfWeek - (int)PrimeiroDiaSemana + 7) % 7;
+        DateTime inicio = primeiro.AddDays(-recuo);
+        for (int i = 0; i < 42; i++)
+        {
+            yield return inicio.AddDays(i);
+        }
+    }
+
+    private IEnumerable<string> RotulosDiasSemana()
+    {
+        for (int i = 0; i < 7; i++)
+        {
+            DayOfWeek dia = (DayOfWeek)(((int)PrimeiroDiaSemana + i) % 7);
+            string nome = Cultura.DateTimeFormat.GetAbbreviatedDayName(dia);
+            yield return char.ToUpper(nome[0], Cultura).ToString();
+        }
+    }
+
+    private bool ForaDoLimite(DateTime dia)
+    {
+        if (DataMinima.HasValue && dia.Date < DataMinima.Value.Date)
+        {
+            return true;
+        }
+        if (DataMaxima.HasValue && dia.Date > DataMaxima.Value.Date)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private bool MesForaDoLimite(int mes)
+    {
+        DateTime ultimoDia = new DateTime(_mesReferencia.Year, mes, DateTime.DaysInMonth(_mesReferencia.Year, mes));
+        DateTime primeiroDia = new DateTime(_mesReferencia.Year, mes, 1);
+        if (DataMinima.HasValue && ultimoDia < DataMinima.Value.Date)
+        {
+            return true;
+        }
+        if (DataMaxima.HasValue && primeiroDia > DataMaxima.Value.Date)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private bool AnoForaDoLimite(int ano)
+    {
+        if (DataMinima.HasValue && ano < DataMinima.Value.Year)
+        {
+            return true;
+        }
+        if (DataMaxima.HasValue && ano > DataMaxima.Value.Year)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    // ----- Classes CSS por célula -----
+
+    private string ClasseDia(DateTime dia)
+    {
+        List<string> classes = new();
+
+        if (dia.Month != _mesReferencia.Month)
+        {
+            classes.Add("bbi-seletor__celula-dia--outro");
+        }
+        if (dia.Date == DateTime.Today)
+        {
+            classes.Add("bbi-seletor__celula-dia--hoje");
+        }
+
+        if (Modo == ModoSeletorData.Periodo)
+        {
+            bool ehInicio = _periodoInicio.HasValue && dia.Date == _periodoInicio.Value.Date;
+            bool ehFim = _periodoFim.HasValue && dia.Date == _periodoFim.Value.Date;
+            bool noIntervalo = _periodoInicio.HasValue && _periodoFim.HasValue
+                && dia.Date > _periodoInicio.Value.Date && dia.Date < _periodoFim.Value.Date;
+
+            if (ehInicio)
+            {
+                classes.Add("bbi-seletor__celula-dia--selecionado bbi-seletor__celula-dia--inicio");
+            }
+            else if (ehFim)
+            {
+                classes.Add("bbi-seletor__celula-dia--selecionado bbi-seletor__celula-dia--fim");
+            }
+            else if (noIntervalo)
+            {
+                classes.Add("bbi-seletor__celula-dia--intervalo");
+            }
+        }
+        else if (_dataSelecionada.HasValue && dia.Date == _dataSelecionada.Value.Date)
+        {
+            classes.Add("bbi-seletor__celula-dia--selecionado");
+        }
+
+        return string.Join(" ", classes);
+    }
+
+    private string ClasseMes(int mes)
+    {
+        List<string> classes = new();
+        DateTime hoje = DateTime.Today;
+        if (_mesReferencia.Year == hoje.Year && mes == hoje.Month)
+        {
+            classes.Add("bbi-seletor__opcao--hoje");
+        }
+        if (_dataSelecionada.HasValue && _mesReferencia.Year == _dataSelecionada.Value.Year
+            && mes == _dataSelecionada.Value.Month)
+        {
+            classes.Add("bbi-seletor__opcao--selecionado");
+        }
+        return string.Join(" ", classes);
+    }
+
+    private string ClasseAno(int ano)
+    {
+        List<string> classes = new();
+        if (ano == DateTime.Today.Year)
+        {
+            classes.Add("bbi-seletor__opcao--hoje");
+        }
+        if (_dataSelecionada.HasValue && ano == _dataSelecionada.Value.Year)
+        {
+            classes.Add("bbi-seletor__opcao--selecionado");
+        }
+        return string.Join(" ", classes);
+    }
+
+    // ----- Textos -----
+
+    private string TituloCabecalho()
+    {
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                return $"{NomeMes(_mesReferencia.Month)} {_mesReferencia.Year}";
+            case NivelNavegacao.Meses:
+                return _mesReferencia.Year.ToString();
+            case NivelNavegacao.Anos:
+                return $"{_anoBaseDecada} – {_anoBaseDecada + 11}";
+            default:
+                return string.Empty;
+        }
+    }
+
+    private string RotuloLateralAnterior()
+    {
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                return NomeMes(_mesReferencia.AddMonths(-1).Month);
+            case NivelNavegacao.Meses:
+                return (_mesReferencia.Year - 1).ToString();
+            case NivelNavegacao.Anos:
+                return (_anoBaseDecada - 10).ToString();
+            default:
+                return string.Empty;
+        }
+    }
+
+    private string RotuloLateralProximo()
+    {
+        switch (_nivel)
+        {
+            case NivelNavegacao.Dias:
+                return NomeMes(_mesReferencia.AddMonths(1).Month);
+            case NivelNavegacao.Meses:
+                return (_mesReferencia.Year + 1).ToString();
+            case NivelNavegacao.Anos:
+                return (_anoBaseDecada + 10).ToString();
+            default:
+                return string.Empty;
+        }
+    }
+
+    private string NomeMes(int mes) => Cultura.DateTimeFormat.GetMonthName(mes);
+
+    private string NomeMesAbrev(int mes)
+    {
+        string nome = Cultura.DateTimeFormat.GetAbbreviatedMonthName(mes).Replace(".", string.Empty);
+        return nome;
+    }
+
+    private string PlaceholderEfetivo()
+    {
+        if (!string.IsNullOrEmpty(Placeholder))
+        {
+            return Placeholder;
+        }
+        return Modo == ModoSeletorData.DataHora ? "dd/mm/aaaa hh:mm" : "dd/mm/aaaa";
+    }
+
+    private string TextoExibicao()
+    {
+        switch (Modo)
+        {
+            case ModoSeletorData.Periodo:
+                if (ValorInicio.HasValue && ValorFim.HasValue)
+                {
+                    return $"{ValorInicio.Value:dd/MM/yyyy} até {ValorFim.Value:dd/MM/yyyy}";
+                }
+                if (ValorInicio.HasValue)
+                {
+                    return $"a partir de {ValorInicio.Value:dd/MM/yyyy}";
+                }
+                return string.Empty;
+            case ModoSeletorData.DataHora:
+                return Valor?.ToString("dd/MM/yyyy HH:mm") ?? string.Empty;
+            default:
+                return Valor?.ToString("dd/MM/yyyy") ?? string.Empty;
+        }
+    }
+
+    // ----- Descarte -----
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_modulo is not null)
+            {
+                if (!_ehCelular)
+                {
+                    await _modulo.InvokeVoidAsync("fecharPopover");
+                }
+                await _modulo.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuito já encerrado; nada a limpar.
+        }
+        _referencia?.Dispose();
+    }
+}

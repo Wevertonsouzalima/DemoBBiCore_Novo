@@ -1,0 +1,45 @@
+/* Estilos isolados do editor de e-mail. */
+.bbi-email { display: flex; flex-direction: column; gap: 10px; }
+.bbi-email__topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.bbi-email__topo-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bbi-email__modos { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+.bbi-email__modo { padding: 3px 10px; border-radius: 999px; background: #1e293b; color: #64748b; }
+.bbi-email__modo--ativo { background: #1d4ed8; color: #fff; }
+.bbi-email__seta { color: #475569; }
+.bbi-email__acao { padding: 7px 12px; border: none; border-radius: 6px; background: #1d4ed8; color: #fff; cursor: pointer; font-size: 0.82rem; }
+.bbi-email__acao:hover { background: #2563eb; }
+.bbi-email__acao--sec { background: #334155; }
+.bbi-email__acao--sec:hover { background: #475569; }
+.bbi-email__acao--prev { background: #047857; }
+.bbi-email__acao--prev:hover { background: #059669; }
+.bbi-email__travado { font-size: 0.8rem; color: #94a3b8; font-style: italic; }
+.bbi-email__dica { font-size: 0.8rem; padding: 8px 12px; background: #0b1225; border: 1px solid #1e293b; border-radius: 6px; color: #94a3b8; }
+.bbi-email__editor-area { display: flex; flex-direction: column; gap: 8px; }
+.bbi-email__rotulo { font-size: 0.8rem; color: #94a3b8; }
+.bbi-email__bloco { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid #1e293b; border-radius: 6px; background: #0b1225; }
+.bbi-email__img { display: flex; align-items: center; gap: 10px; }
+.bbi-email__img img { max-height: 60px; max-width: 200px; border: 1px solid #334155; border-radius: 4px; background: #fff; }
+.bbi-email__remover { padding: 4px 10px; border: none; border-radius: 4px; background: #7f1d1d; color: #fecaca; cursor: pointer; font-size: 0.78rem; }
+.bbi-email__remover:hover { background: #991b1b; }
+/* Modal de preview */
+.bbi-email__modal-fundo { position: fixed; inset: 0; z-index: 60; background: rgba(2,6,23,0.7); }
+.bbi-email__modal {
+    position: fixed; z-index: 61; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: min(820px, 92vw); height: min(80vh, 720px);
+    display: flex; flex-direction: column;
+    background: #0b1225; border: 1px solid #334155; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.bbi-email__modal-topo { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #1e293b; }
+.bbi-email__modal-titulo { font-size: 0.95rem; color: #e2e8f0; font-weight: 600; }
+.bbi-email__modal-acoes { display: flex; gap: 8px; }
+.bbi-email__modal-preview { flex: 1; border: 0; background: #fff; }
+/* Escolha de imagens do acervo e ContentId (modo avançado). */
+.bbi-email__select { padding: 8px 10px; border: 1px solid #334155; border-radius: 6px; background: #020617; color: #e2e8f0; font-size: 0.88rem; width: 100%; box-sizing: border-box; }
+.bbi-email__escolhido { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #334155; border-radius: 6px; background: #0b1225; font-size: 0.88rem; color: #e2e8f0; }
+.bbi-email__cid { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 6px 10px; border: 1px solid #1e293b; border-radius: 6px; background: #0b1225; font-size: 0.85rem; }
+.bbi-email__cid-nome { color: #e2e8f0; }
+.bbi-email__cid-valor { background: #020617; padding: 3px 8px; border-radius: 4px; color: #6ee7b7; font-size: 0.8rem; }
+.bbi-email__aviso { padding: 9px 12px; border-radius: 6px; font-size: 0.85rem; margin: 8px 0; }
+.bbi-email__aviso--erro { background: #4c0519; color: #fecdd3; border: 1px solid #7f1d1d; }
+.bbi-email__nota { font-size: 0.8rem; color: #94a3b8; font-style: italic; }

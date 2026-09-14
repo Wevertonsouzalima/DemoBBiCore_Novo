@@ -1,0 +1,258 @@
+@*
+    Demonstração do ENVIO PROGRAMÁTICO (sem o componente): o dev injeta
+    IServicoEmail e envia de duas formas, com semânticas DIFERENTES de propósito:
+
+      · AVULSO   -> texto LITERAL. Um "{{campo}}" digitado aqui chega assim ao
+                    destinatário. Nada é resolvido.
+      · TEMPLATE -> os marcadores {{campo}} SÃO resolvidos com o objeto de dados.
+
+    Nesta demo o transporte registrado é o SIMULADO: nada é transmitido, o e-mail
+    é gravado como .eml na pasta "emails-simulados" da aplicação.
+
+    Harness — não faz parte da biblioteca.
+*@
+@page "/enviar"
+@rendermode InteractiveServer
+@using BBiCore.Email
+@using DemoBBiCore.Modelos
+@inject IServicoEmail ServicoEmail
+@inject IRepositorioTemplateEmail Repositorio
+
+<PageTitle>BBiCore — envio programático</PageTitle>
+
+<h1>BBiCore — envio pelo código</h1>
+
+<p class="intro">
+    Aqui o e-mail é enviado <strong>sem o componente</strong>: o dev injeta o
+    <code>IServicoEmail</code> e dispara. Repare na diferença de semântica entre as duas formas —
+    é a regra que combinamos: <strong>marcador só vale no template</strong>.
+</p>
+
+<div class="tpl-grade">
+    <div class="tpl-col">
+        <div class="tpl-painel">
+            <span class="tpl-painel-titulo">1. E-mail avulso (texto literal)</span>
+            <p class="obs">
+                O corpo abaixo contém <code>{{NomeCliente}}</code> de propósito. Como este é um envio
+                avulso, ele <strong>não</strong> é resolvido: chega ao destinatário exatamente assim.
+            </p>
+
+            <label class="bbi-mail__rotulo" for="para-avulso">Para</label>
+            <input id="para-avulso" class="bbi-mail__input" @bind="_paraAvulso" />
+
+            <label class="bbi-mail__rotulo" for="assunto-avulso">Assunto</label>
+            <input id="assunto-avulso" class="bbi-mail__input" @bind="_assuntoAvulso" />
+
+            <label class="bbi-mail__rotulo" for="corpo-avulso">Corpo (texto simples)</label>
+            <textarea id="corpo-avulso" class="bbi-mail__input" rows="5" @bind="_corpoAvulso"></textarea>
+
+            <label class="bbi-mail__anexo-excluir">
+                <input type="checkbox" @bind="_comAnexo" />
+                anexar um arquivo gerado na hora (relatorio.csv)
+            </label>
+
+            <button type="button" class="bbi-mail__botao" @onclick="EnviarAvulso" disabled="@_ocupado">
+                Enviar avulso
+            </button>
+        </div>
+    </div>
+
+    <div class="tpl-col">
+        <div class="tpl-painel">
+            <span class="tpl-painel-titulo">2. Envio por template salvo (resolve marcadores)</span>
+            <p class="obs">
+                Salva um template com marcadores e envia informando o <strong>nome</strong> dele e o
+                objeto de dados. Aqui os <code>{{ }}</code> <strong>são</strong> substituídos.
+            </p>
+
+            <ul class="tpl-registro">
+                <li><strong>Template:</strong> <code>@NomeTemplate</code></li>
+                <li><strong>Assunto:</strong> <code>Pedido {{NumeroPedido}} — {{Status}}</code></li>
+                <li><strong>Para:</strong> <code>{{EmailCliente}}</code></li>
+                <li><strong>Dados:</strong> @_pedido.NomeCliente, pedido @_pedido.NumeroPedido</li>
+            </ul>
+
+            <button type="button" class="bbi-mail__botao bbi-mail__botao--env" @onclick="EnviarPorTemplate" disabled="@_ocupado">
+                Salvar template e enviar
+            </button>
+
+            <button type="button" class="bbi-mail__botao bbi-mail__botao--sec" @onclick="GerarRascunhoTemplate" disabled="@_ocupado">
+                Gerar rascunho (.eml em disco)
+            </button>
+
+            <button type="button" class="bbi-mail__botao bbi-mail__botao--sec" @onclick="RascunhoNaCaixaPostal" disabled="@_ocupado">
+                Rascunho na caixa postal (só Exchange)
+            </button>
+
+            <button type="button" class="bbi-mail__botao bbi-mail__botao--sec" @onclick="TestarConexao" disabled="@_ocupado">
+                Testar conexão
+            </button>
+        </div>
+
+        @if (_mensagem is not null)
+        {
+            <div class="tpl-painel">
+                <span class="tpl-painel-titulo">Resultado</span>
+                <p class="@(_ok ? "resultado-ok" : "resultado-erro")">@_mensagem</p>
+                <p class="obs">
+                    O transporte simulado grava o arquivo em <code>emails-simulados/</code>, na raiz da
+                    aplicação. Abra o <code>.eml</code> para conferir corpo, anexos e destinatários.
+                </p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Nome do template usado na demonstração.</summary>
+    private const string NomeTemplate = "aviso-pedido";
+
+    /// <summary>Destinatário do envio avulso.</summary>
+    private string _paraAvulso = "destino@exemplo.com";
+
+    /// <summary>Assunto do envio avulso.</summary>
+    private string _assuntoAvulso = "Aviso do sistema";
+
+    /// <summary>Corpo do envio avulso (contém um marcador de propósito, que NÃO deve ser resolvido).</summary>
+    private string _corpoAvulso = "Olá,\n\nEste é um envio avulso. O texto {{NomeCliente}} aqui é literal — não vira nada.\n\nAbraço.";
+
+    /// <summary>Se inclui um anexo gerado em memória.</summary>
+    private bool _comAnexo;
+
+    /// <summary>Registro usado no envio por template.</summary>
+    private readonly PedidoCliente _pedido = new()
+    {
+        NomeCliente = "João Silva",
+        EmailCliente = "joao.silva@exemplo.com",
+        NumeroPedido = 4821,
+        Total = 1234.50m,
+        DataPedido = new DateTime(2026, 3, 12),
+        Status = "Aprovado"
+    };
+
+    /// <summary>Indica envio em andamento.</summary>
+    private bool _ocupado;
+
+    /// <summary>Mensagem de retorno do último envio.</summary>
+    private string? _mensagem;
+
+    /// <summary>Se o último envio deu certo.</summary>
+    private bool _ok;
+
+    /// <summary>Monta e envia um e-mail avulso — conteúdo literal, sem resolução de marcadores.</summary>
+    private async Task EnviarAvulso()
+    {
+        _ocupado = true;
+        _mensagem = null;
+
+        EmailAvulso email = new()
+        {
+            Assunto = _assuntoAvulso,
+            Classificacao = ClassificacaoEmail.Interno
+        };
+
+        email.Para.Add(_paraAvulso);
+        email.DefinirCorpoTexto(_corpoAvulso);
+
+        if (_comAnexo)
+        {
+            byte[] csv = System.Text.Encoding.UTF8.GetBytes("Coluna;Valor\r\nTotal;1.234,56\r\n");
+            email.Anexos.Add(AnexoAvulso.DeBytes("relatorio.csv", csv, "text/csv"));
+        }
+
+        ResultadoEnvio resultado = await ServicoEmail.EnviarAsync(email);
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+        _ocupado = false;
+    }
+
+    /// <summary>Gera o rascunho .eml do template — JÁ RESOLVIDO, exatamente como seria enviado.</summary>
+    private async Task GerarRascunhoTemplate()
+    {
+        _ocupado = true;
+        _mensagem = null;
+
+        TemplateEmailDto template = MontarTemplate();
+
+        OpcoesRascunho opcoes = new()
+        {
+            Destino = DestinoRascunho.Arquivo,
+            PastaArquivo = Path.Combine(AppContext.BaseDirectory, "rascunhos")
+        };
+
+        ResultadoRascunho resultado = await ServicoEmail.GerarRascunhoTemplateAsync(template, _pedido, opcoes);
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Sucesso
+            ? $"{resultado.Mensagem} Arquivo: {resultado.CaminhoArquivo}"
+            : resultado.Mensagem;
+        _ocupado = false;
+    }
+
+    /// <summary>
+    /// Pede o rascunho na CAIXA POSTAL. Como esta demo usa o transporte simulado (que não implementa
+    /// ITransporteRascunho), a biblioteca não quebra: gera os outros destinos e devolve a ressalva.
+    /// Com o TransporteExchange registrado, o e-mail apareceria na pasta Rascunhos do Outlook.
+    /// </summary>
+    private async Task RascunhoNaCaixaPostal()
+    {
+        _ocupado = true;
+        _mensagem = null;
+
+        OpcoesRascunho opcoes = new()
+        {
+            Destino = DestinoRascunho.CaixaPostal | DestinoRascunho.Arquivo,
+            PastaArquivo = Path.Combine(AppContext.BaseDirectory, "rascunhos")
+        };
+
+        ResultadoRascunho resultado = await ServicoEmail.GerarRascunhoTemplateAsync(MontarTemplate(), _pedido, opcoes);
+
+        _ok = resultado.Sucesso;
+        _mensagem = $"{resultado.Mensagem} (caixa postal: {(resultado.SalvoNaCaixaPostal ? "sim" : "não")})";
+        _ocupado = false;
+    }
+
+    /// <summary>Autentica no servidor e desconecta, sem enviar nada.</summary>
+    private async Task TestarConexao()
+    {
+        _ocupado = true;
+        _mensagem = null;
+
+        ResultadoEnvio resultado = await ServicoEmail.TestarConexaoAsync();
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+        _ocupado = false;
+    }
+
+    /// <summary>Monta o template de demonstração (com marcadores).</summary>
+    /// <returns>Template pronto.</returns>
+    private static TemplateEmailDto MontarTemplate()
+        => new()
+        {
+            Nome = NomeTemplate,
+            Assunto = "Pedido {{NumeroPedido}} — {{Status}}",
+            Destinatarios = "{{EmailCliente}}",
+            Corpo = "<p>Olá, {{NomeCliente}}!</p><p>O seu pedido {{NumeroPedido}}, de R$ {{Total}}, está {{Status}}.</p><p>{{Area}} — {{NomeSistema}}</p>",
+            Classificacao = ClassificacaoEmail.Interno,
+            OrigemCriacao = OrigemCriacaoTemplate.Avancado,
+            Situacao = SituacaoTemplate.Publicado   // rascunho seria RECUSADO no envio
+        };
+
+    /// <summary>Salva um template com marcadores e envia pelo nome — aqui os marcadores SÃO resolvidos.</summary>
+    private async Task EnviarPorTemplate()
+    {
+        _ocupado = true;
+        _mensagem = null;
+
+        TemplateEmailDto template = MontarTemplate();
+        await Repositorio.SalvarAsync(template);
+
+        ResultadoEnvio resultado = await ServicoEmail.EnviarPorTemplateAsync(NomeTemplate, _pedido);
+
+        _ok = resultado.Sucesso;
+        _mensagem = resultado.Mensagem;
+        _ocupado = false;
+    }
+}
